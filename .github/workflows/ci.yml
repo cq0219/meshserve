@@ -45,7 +45,7 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
-          args: --timeout=5m --enable=errcheck,govet,ineffassign,staticcheck,unused,gosimple
+          args: --timeout=5m --enable=errcheck,govet,ineffassign,staticcheck,unused
 
       - name: 漏洞扫描
         run: |
