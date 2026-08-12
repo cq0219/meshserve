@@ -120,7 +120,15 @@ func (g *Gateway) handleChat(w http.ResponseWriter, r *http.Request) {
 	g.stats.Requests++
 	g.mu.Unlock()
 
-	eng := engines[0] // 单副本场景取首个；多副本负载均衡由 router 实现
+	eng := engines[0] // 多副本负载均衡：router.Resolve 已按负载升序返回（低负载优先）
+	// 负载感知（M3）：若 router 支持并发计数，请求进出时维护活跃数
+	if lb, ok := g.router.(interface {
+		Acquire(engine.Engine)
+		Release(engine.Engine)
+	}); ok {
+		lb.Acquire(eng)
+		defer lb.Release(eng)
+	}
 	if req.Stream {
 		g.streamChat(w, r.Context(), eng, &req)
 	} else {

@@ -171,3 +171,75 @@ func TestPlaceN_Zero(t *testing.T) {
 		t.Errorf("副本数 0 应按 1 处理，实际 %d", len(ps))
 	}
 }
+
+// resN 构造多 GPU 节点资源视图（M3 分片测试用）。
+func resN(nodeID string, gpuCount int, total, free uint64) *NodeResources {
+	r := &NodeResources{NodeID: nodeID, MemAvail: 64 << 30, Updated: time.Now()}
+	for i := 0; i < gpuCount; i++ {
+		r.GPUs = append(r.GPUs, GPUCapacity{ID: string(rune('0' + i)), Name: "A100", VRAMTotal: total, VRAMFree: free})
+	}
+	return r
+}
+
+// TestPlace_TensorParallel TP>1 需单节点 GPU 数满足。
+func TestPlace_TensorParallel(t *testing.T) {
+	s := New(nil, nil, nil)
+	s.UpdateResources(resN("node-1gpu", 1, 80<<30, 80<<30))
+	s.UpdateResources(resN("node-4gpu", 4, 80<<30, 80<<30))
+
+	m := &raftstore.Model{Name: "qwen-70b", VRAMBytes: 20 << 30, TensorParallel: 4}
+	p, err := s.Place(context.Background(), m)
+	if err != nil {
+		t.Fatalf("Place(tp=4) 失败: %v", err)
+	}
+	if p.NodeID != "node-4gpu" {
+		t.Errorf("tp=4 应放置到 4 GPU 节点，实际 %s", p.NodeID)
+	}
+}
+
+// TestPlace_TensorParallel_Insufficient TP 超出任何节点 GPU 数时报错。
+func TestPlace_TensorParallel_Insufficient(t *testing.T) {
+	s := New(nil, nil, nil)
+	s.UpdateResources(resN("node-2gpu", 2, 80<<30, 80<<30))
+
+	m := &raftstore.Model{Name: "big", VRAMBytes: 10 << 30, TensorParallel: 4}
+	if _, err := s.Place(context.Background(), m); err == nil {
+		t.Fatal("tp=4 但最大节点仅 2 GPU 应报错")
+	}
+}
+
+// TestPlaceN_PipelineParallel PP 跨节点：需 PP 个不同节点。
+func TestPlaceN_PipelineParallel(t *testing.T) {
+	s := New(nil, nil, nil)
+	s.UpdateResources(res("node-a", 80<<30, 80<<30))
+	s.UpdateResources(res("node-b", 80<<30, 80<<30))
+	s.UpdateResources(res("node-c", 80<<30, 80<<30))
+
+	m := &raftstore.Model{Name: "deepseek", VRAMBytes: 30 << 30, PipelineParallel: 3}
+	ps, err := s.PlaceN(context.Background(), m, 3)
+	if err != nil {
+		t.Fatalf("PlaceN(pp=3) 失败: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, p := range ps {
+		seen[p.NodeID] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("PP=3 应分散到 3 个节点，实际 %d 个", len(seen))
+	}
+	// PP stage 实例应带 -s 后缀标识
+	if ps[0].InstanceID == ps[1].InstanceID {
+		t.Error("不同 stage 的实例 ID 不应相同")
+	}
+}
+
+// TestPlaceN_PipelineParallel_Insufficient PP 节点不足时报错。
+func TestPlaceN_PipelineParallel_Insufficient(t *testing.T) {
+	s := New(nil, nil, nil)
+	s.UpdateResources(res("node-a", 80<<30, 80<<30))
+
+	m := &raftstore.Model{Name: "deepseek", VRAMBytes: 30 << 30, PipelineParallel: 4}
+	if _, err := s.PlaceN(context.Background(), m, 4); err == nil {
+		t.Fatal("PP=4 但仅 1 节点应报错")
+	}
+}

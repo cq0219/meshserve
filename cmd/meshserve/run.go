@@ -94,9 +94,16 @@ func newRunCmd() *cobra.Command {
 
 			// 4. 调度器（订阅成员事件，节点离线触发重建）
 			sched := scheduler.New(store, mgr, log)
-			sched.SetDeployHandler(func(ctx context.Context, nodeID, instanceID, modelName, modelPath, eng string, vram uint64) error {
+			sched.SetDeployHandler(func(ctx context.Context, req scheduler.DeployRequest) error {
 				// 本节点部署（V1 单机模式；集群版由各节点 agent RPC 分发）
-				_, err := ag.DeployInstance(ctx, instanceID, modelName, modelPath, eng, vram)
+				_, err := ag.DeployInstance(ctx, req.InstanceID, req.ModelName, agent.DeploySpec{
+					ModelPath:        req.ModelPath,
+					Engine:           req.Engine,
+					VRAMQuota:        req.VRAMBytes,
+					TensorParallel:   req.TensorParallel,
+					PipelineParallel: req.PipelineParallel,
+					Quant:            req.Quant,
+				})
 				return err
 			})
 			go watchClusterEvents(ctx, mgr, sched)
@@ -182,7 +189,14 @@ func registerDeployedModels(ctx context.Context, ag *agent.Agent, repo *modelrep
 		if m.Source != "local" {
 			continue
 		}
-		inst, err := ag.DeployInstance(ctx, "inst-"+m.Name+"-restore", m.Name, m.Path, m.Engine, m.VRAMBytes)
+		inst, err := ag.DeployInstance(ctx, "inst-"+m.Name+"-restore", m.Name, agent.DeploySpec{
+			ModelPath:        m.Path,
+			Engine:           m.Engine,
+			VRAMQuota:        m.VRAMBytes,
+			TensorParallel:   m.TensorParallel,
+			PipelineParallel: m.PipelineParallel,
+			Quant:            m.Quant,
+		})
 		if err != nil {
 			log.Warn("模型自动部署失败", "model", m.Name, "err", err)
 			continue

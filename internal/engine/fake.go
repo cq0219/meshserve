@@ -15,6 +15,9 @@ func init() {
 type FakeEngine struct {
 	loaded bool
 	addr   string
+	tp     int    // 张量并行（记录验证，M3）
+	pp     int    // 流水线并行（记录验证，M3）
+	quant  string // 量化档位（记录验证，M3）
 }
 
 // Name 返回引擎标识。
@@ -23,11 +26,21 @@ func (e *FakeEngine) Name() string { return "fake" }
 // Addr 返回地址。
 func (e *FakeEngine) Addr() string { return e.addr }
 
-// Load 模拟模型加载（记录状态）。
+// Load 模拟模型加载（记录状态与分片参数）。
 func (e *FakeEngine) Load(ctx context.Context, cfg LoadConfig) error {
 	e.loaded = true
 	e.addr = "fake://" + cfg.ModelPath
+	e.tp = cfg.TensorParallel
+	e.quant = cfg.Quant
+	if pp, ok := cfg.Extra["pipeline_parallel"]; ok {
+		_, _ = fmt.Sscanf(pp, "%d", &e.pp)
+	}
 	return nil
+}
+
+// Shard 返回实例分片描述（tp/pp/quant，供控制台与测试展示）。
+func (e *FakeEngine) Shard() string {
+	return fmt.Sprintf("tp=%d/pp=%d/%s", e.tp, e.pp, e.quant)
 }
 
 // Unload 模拟卸载。

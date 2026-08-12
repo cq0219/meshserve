@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/yourorg/meshserve/internal/engine"
@@ -10,16 +11,18 @@ import (
 )
 
 // LocalRouter 单机路由：模型名 → 本机已注册引擎（由 agent 提供）。
-// 满足 Router 接口；多副本/跨节点路由由集群版 Router 提供（M2）。
+// 多副本场景按「活跃请求数」负载均衡：Resolve 返回负载升序的引擎列表（低负载优先）。
+// 网关在处理请求前后调用 Acquire/Release 维护并发计数。
 type LocalRouter struct {
 	mu      sync.RWMutex
 	repo    *modelrepo.Repo
 	engines map[string][]engine.Engine // modelName → 可用引擎
+	load    map[engine.Engine]int64    // engine → 活跃请求数（M3 负载均衡）
 }
 
 // NewLocalRouter 创建单机路由。
 func NewLocalRouter(repo *modelrepo.Repo) *LocalRouter {
-	return &LocalRouter{repo: repo, engines: make(map[string][]engine.Engine)}
+	return &LocalRouter{repo: repo, engines: make(map[string][]engine.Engine), load: make(map[engine.Engine]int64)}
 }
 
 // RegisterEngine 注册模型到引擎映射（agent 部署成功后调用）。
@@ -40,12 +43,36 @@ func (r *LocalRouter) UnregisterEngine(modelName string, eng engine.Engine) {
 			break
 		}
 	}
+	delete(r.load, eng)
 	if len(r.engines[modelName]) == 0 {
 		delete(r.engines, modelName)
 	}
 }
 
-// Resolve 返回模型可用的引擎列表。
+// Acquire 请求开始：引擎活跃计数 +1（网关调用）。
+func (r *LocalRouter) Acquire(eng engine.Engine) {
+	r.mu.Lock()
+	r.load[eng]++
+	r.mu.Unlock()
+}
+
+// Release 请求结束：引擎活跃计数 -1（网关调用）。
+func (r *LocalRouter) Release(eng engine.Engine) {
+	r.mu.Lock()
+	if r.load[eng] > 0 {
+		r.load[eng]--
+	}
+	r.mu.Unlock()
+}
+
+// Load 返回指定引擎当前活跃请求数。
+func (r *LocalRouter) Load(eng engine.Engine) int64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.load[eng]
+}
+
+// Resolve 返回模型可用的引擎列表，按负载升序（低负载优先，M3 负载均衡）。
 func (r *LocalRouter) Resolve(model string) ([]engine.Engine, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -59,6 +86,8 @@ func (r *LocalRouter) Resolve(model string) ([]engine.Engine, error) {
 	}
 	out := make([]engine.Engine, len(engines))
 	copy(out, engines)
+	// 稳定排序：负载低者优先（同负载保持注册顺序）
+	sort.SliceStable(out, func(i, j int) bool { return r.load[out[i]] < r.load[out[j]] })
 	return out, nil
 }
 

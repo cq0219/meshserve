@@ -34,6 +34,8 @@ func newModelRegisterCmd() *cobra.Command {
 		quant  string
 		paramB string
 		vram   string
+		tp     int
+		pp     int
 	)
 	cmd := &cobra.Command{
 		Use:   "register <name>",
@@ -64,14 +66,16 @@ func newModelRegisterCmd() *cobra.Command {
 			}
 
 			m := &raftstore.Model{
-				Name:      name,
-				Version:   "v1",
-				Path:      path,
-				Engine:    engine,
-				Quant:     quant,
-				VRAMBytes: vramBytes,
-				Replicas:  1,
-				Source:    "local",
+				Name:             name,
+				Version:          "v1",
+				Path:             path,
+				Engine:           engine,
+				Quant:            quant,
+				VRAMBytes:        vramBytes,
+				TensorParallel:   tp,
+				PipelineParallel: pp,
+				Replicas:         1,
+				Source:           "local",
 			}
 			if err := m.Validate(); err != nil {
 				return err
@@ -79,7 +83,11 @@ func newModelRegisterCmd() *cobra.Command {
 			if err := store.PutModel(name, mustEncodeModel(m)); err != nil {
 				return fmt.Errorf("保存模型失败: %w", err)
 			}
-			fmt.Printf("✅ 模型已注册: %s (engine=%s, quant=%s, vram≈%d bytes)\n", name, engine, quant, vramBytes)
+			shard := "无分片"
+			if tp > 1 || pp > 1 {
+				shard = fmt.Sprintf("tp=%d pp=%d", tp, pp)
+			}
+			fmt.Printf("✅ 模型已注册: %s (engine=%s, quant=%s, %s, vram≈%d bytes)\n", name, engine, quant, shard, vramBytes)
 			fmt.Printf("部署方式: meshserve model deploy %s\n", name)
 			return nil
 		},
@@ -89,6 +97,8 @@ func newModelRegisterCmd() *cobra.Command {
 	cmd.Flags().StringVar(&quant, "quant", "fp16", "量化: fp16|bf16|int8|int4")
 	cmd.Flags().StringVar(&paramB, "params", "", "参数量（十亿），用于显存估算")
 	cmd.Flags().StringVar(&vram, "vram", "", "显存需求（字节），优先级高于 params")
+	cmd.Flags().IntVar(&tp, "tp", 1, "张量并行大小（TP>1 需单节点 GPU 数 ≥ TP）")
+	cmd.Flags().IntVar(&pp, "pp", 1, "流水线并行大小（PP>1 需 PP 个节点）")
 	return cmd
 }
 
@@ -115,7 +125,7 @@ func newModelListCmd() *cobra.Command {
 				fmt.Println("（暂无已注册模型）")
 				return nil
 			}
-			fmt.Printf("%-24s %-10s %-8s %-14s\n", "名称", "引擎", "量化", "显存需求")
+			fmt.Printf("%-24s %-10s %-8s %-16s %-10s\n", "名称", "引擎", "量化", "显存需求", "分片")
 			for _, n := range names {
 				data, err := store.GetModel(n)
 				if err != nil {
@@ -125,7 +135,11 @@ func newModelListCmd() *cobra.Command {
 				if err != nil {
 					continue
 				}
-				fmt.Printf("%-24s %-10s %-8s %-14d\n", m.Name, m.Engine, m.Quant, m.VRAMBytes)
+				shard := "-"
+				if m.TensorParallel > 1 || m.PipelineParallel > 1 {
+					shard = fmt.Sprintf("tp%d/pp%d", m.TensorParallel, m.PipelineParallel)
+				}
+				fmt.Printf("%-24s %-10s %-8s %-16d %-10s\n", m.Name, m.Engine, m.Quant, m.VRAMBytes, shard)
 			}
 			return nil
 		},

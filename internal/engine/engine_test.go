@@ -72,3 +72,35 @@ func TestRegistered(t *testing.T) {
 		}
 	}
 }
+
+// TestFakeEngine_Shard 分片参数透传（M3）：tp/pp/quant 记录并可通过 Shard 展示。
+func TestFakeEngine_Shard(t *testing.T) {
+	e := &FakeEngine{}
+	ctx := context.Background()
+	err := e.Load(ctx, LoadConfig{
+		ModelPath:      "/models/qwen",
+		TensorParallel: 4,
+		Quant:          "int8",
+		VRAMQuotaBytes: 20 << 30,
+		Extra:          map[string]string{"pipeline_parallel": "2"},
+	})
+	if err != nil {
+		t.Fatalf("Load 失败: %v", err)
+	}
+	if e.tp != 4 || e.pp != 2 || e.quant != "int8" {
+		t.Errorf("分片参数记录错误: tp=%d pp=%d quant=%s", e.tp, e.pp, e.quant)
+	}
+	if got := e.Shard(); got != "tp=4/pp=2/int8" {
+		t.Errorf("Shard 描述错误: %s", got)
+	}
+}
+
+// TestFakeEngine_ShardDefault 未指定分片时默认 tp=1/pp=0/fp16。
+func TestFakeEngine_ShardDefault(t *testing.T) {
+	e := &FakeEngine{}
+	ctx := context.Background()
+	_ = e.Load(ctx, LoadConfig{ModelPath: "/models/x", Quant: "fp16"})
+	if e.tp != 0 {
+		t.Errorf("默认 tp 应为 0，实际 %d", e.tp)
+	}
+}

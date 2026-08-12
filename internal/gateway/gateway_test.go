@@ -194,4 +194,60 @@ func TestRecover_Panic(t *testing.T) {
 	}
 }
 
+// TestLoadBalance 多副本负载均衡（M3）：高活跃请求的副本不优先被路由。
+func TestLoadBalance(t *testing.T) {
+	_, router := testGateway(t)
+
+	// 注册两个 fake 副本
+	e1 := &engine.FakeEngine{}
+	e2 := &engine.FakeEngine{}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = e1.Load(ctx, engine.LoadConfig{ModelPath: "/models/m"})
+	_ = e2.Load(ctx, engine.LoadConfig{ModelPath: "/models/m"})
+	router.RegisterEngine("m", e1)
+	router.RegisterEngine("m", e2)
+
+	// e1 已有 2 个活跃请求
+	router.Acquire(e1)
+	router.Acquire(e1)
+	if router.Load(e1) != 2 {
+		t.Errorf("Acquire 后 e1 负载应为 2，实际 %d", router.Load(e1))
+	}
+
+	engines, err := router.Resolve("m")
+	if err != nil {
+		t.Fatalf("Resolve 失败: %v", err)
+	}
+	if engines[0] != e2 {
+		t.Error("负载均衡应优先返回低负载副本 e2")
+	}
+
+	// 释放后恢复注册顺序（同负载保持稳定）
+	router.Release(e1)
+	router.Release(e1)
+	engines, _ = router.Resolve("m")
+	if engines[0] != e1 {
+		t.Error("负载均衡后同负载应保持注册顺序")
+	}
+}
+
+// TestUnregisterEngine_ClearsLoad 注销实例时清除负载计数。
+func TestUnregisterEngine_ClearsLoad(t *testing.T) {
+	_, router := testGateway(t)
+	e := &engine.FakeEngine{}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = e.Load(ctx, engine.LoadConfig{ModelPath: "/models/m"})
+	router.RegisterEngine("m", e)
+	router.Acquire(e)
+	if router.Load(e) != 1 {
+		t.Fatal("Acquire 失败")
+	}
+	router.UnregisterEngine("m", e)
+	if router.Load(e) != 0 {
+		t.Errorf("注销后负载计数应清零，实际 %d", router.Load(e))
+	}
+}
+
 var _ = time.Second // keep import

@@ -27,7 +27,7 @@ func TestDeployAndStop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	inst, err := a.DeployInstance(ctx, "inst-1", "m1", filepath.Join(a.cfg.ModelsDir, "m1"), "fake", 0)
+	inst, err := a.DeployInstance(ctx, "inst-1", "m1", DeploySpec{ModelPath: filepath.Join(a.cfg.ModelsDir, "m1"), Engine: "fake"})
 	if err != nil {
 		t.Fatalf("DeployInstance 失败: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestDeployAndStop(t *testing.T) {
 		t.Errorf("期望 ready，实际 %s", inst.State)
 	}
 	// 重复部署应报错
-	if _, err := a.DeployInstance(ctx, "inst-1", "m1", "/m", "fake", 0); err == nil {
+	if _, err := a.DeployInstance(ctx, "inst-1", "m1", DeploySpec{ModelPath: "/m", Engine: "fake"}); err == nil {
 		t.Error("重复部署应报错")
 	}
 	// 停止
@@ -56,8 +56,8 @@ func TestDeployAndStop(t *testing.T) {
 func TestListInstances(t *testing.T) {
 	a := newTestAgent(t)
 	ctx := context.Background()
-	_, _ = a.DeployInstance(ctx, "inst-a", "ma", "/m/ma", "fake", 0)
-	_, _ = a.DeployInstance(ctx, "inst-b", "mb", "/m/mb", "fake", 0)
+	_, _ = a.DeployInstance(ctx, "inst-a", "ma", DeploySpec{ModelPath: "/m/ma", Engine: "fake"})
+	_, _ = a.DeployInstance(ctx, "inst-b", "mb", DeploySpec{ModelPath: "/m/mb", Engine: "fake"})
 
 	list := a.ListInstances()
 	if len(list) != 2 {
@@ -70,7 +70,7 @@ func TestHealthCheckSelfHeal(t *testing.T) {
 	a := newTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_, _ = a.DeployInstance(ctx, "inst-ok", "m", "/m/m", "fake", 0)
+	_, _ = a.DeployInstance(ctx, "inst-ok", "m", DeploySpec{ModelPath: "/m/m", Engine: "fake"})
 	a.HealthCheck(ctx)
 	list := a.ListInstances()
 	if len(list) != 1 || list[0].State != InstReady {
@@ -84,7 +84,7 @@ func TestHealthCheckFailedInstanceRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	// 部署 fake 后手动移除引擎引用模拟故障
-	_, _ = a.DeployInstance(ctx, "inst-bad", "m", "/m/m", "fake", 0)
+	_, _ = a.DeployInstance(ctx, "inst-bad", "m", DeploySpec{ModelPath: "/m/m", Engine: "fake"})
 	a.mu.Lock()
 	delete(a.engines, "inst-bad") // 模拟引擎丢失
 	a.mu.Unlock()

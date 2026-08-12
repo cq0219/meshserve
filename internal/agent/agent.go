@@ -49,8 +49,28 @@ type Instance struct {
 	State     InstanceState `json:"state"`
 	Addr      string        `json:"addr,omitempty"`
 	VRAMUsed  uint64        `json:"vram_used,omitempty"`
-	StartedAt time.Time     `json:"started_at"`
-	LastError string        `json:"last_error,omitempty"`
+	// TensorParallel / PipelineParallel / Quant 部署分片信息（自愈恢复时复用，M3）
+	TensorParallel   int    `json:"tensor_parallel,omitempty"`
+	PipelineParallel int    `json:"pipeline_parallel,omitempty"`
+	Quant            string `json:"quant,omitempty"`
+	StartedAt        time.Time
+	LastError        string `json:"last_error,omitempty"`
+}
+
+// DeploySpec 实例部署规格（由调度器决策/恢复流程传入，M3 分片）。
+type DeploySpec struct {
+	// ModelPath 模型权重路径
+	ModelPath string
+	// Engine 引擎名：vllm|sglang|llamacpp|fake
+	Engine string
+	// VRAMQuota 显存配额（字节）
+	VRAMQuota uint64
+	// TensorParallel 张量并行大小（同机多卡）
+	TensorParallel int
+	// PipelineParallel 流水线并行大小
+	PipelineParallel int
+	// Quant 量化档位：fp16|bf16|int8|int4
+	Quant string
 }
 
 // Agent 节点代理。
@@ -99,23 +119,32 @@ func CollectGPU() ([]GPUInfo, error) {
 }
 
 // DeployInstance 部署并启动推理实例（阻塞至就绪或超时）。
-func (a *Agent) DeployInstance(ctx context.Context, id, modelName, modelPath, engineName string, vramQuota uint64) (*Instance, error) {
+// spec 携带模型路径、引擎、显存配额与分片参数（TP/PP/量化，M3）。
+func (a *Agent) DeployInstance(ctx context.Context, id, modelName string, spec DeploySpec) (*Instance, error) {
 	a.mu.Lock()
 	if _, exists := a.instances[id]; exists {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("实例 %s 已存在", id)
 	}
-	inst := &Instance{ID: id, ModelName: modelName, Engine: engineName, State: InstLoading, StartedAt: time.Now()}
+	inst := &Instance{
+		ID: id, ModelName: modelName, Engine: spec.Engine, State: InstLoading,
+		TensorParallel: spec.TensorParallel, PipelineParallel: spec.PipelineParallel, Quant: spec.Quant,
+		VRAMUsed: spec.VRAMQuota, StartedAt: time.Now(),
+	}
 	a.instances[id] = inst
 	a.mu.Unlock()
 
-	a.log.Info("部署实例", "id", id, "model", modelName, "engine", engineName, "path", modelPath)
-	eng := engine.Create(engineName, engine.Options{HTTPAddr: defaultEngineAddr(engineName)})
+	a.log.Info("部署实例", "id", id, "model", modelName, "engine", spec.Engine,
+		"tp", spec.TensorParallel, "pp", spec.PipelineParallel, "quant", spec.Quant, "path", spec.ModelPath)
+	eng := engine.Create(spec.Engine, engine.Options{HTTPAddr: defaultEngineAddr(spec.Engine)})
 	if err := eng.Load(ctx, engine.LoadConfig{
-		ModelPath:      modelPath,
-		TensorParallel: 1,
-		Quant:          "fp16",
-		VRAMQuotaBytes: vramQuota,
+		ModelPath:      spec.ModelPath,
+		TensorParallel: spec.TensorParallel,
+		Quant:          spec.Quant,
+		VRAMQuotaBytes: spec.VRAMQuota,
+		Extra: map[string]string{
+			"pipeline_parallel": fmt.Sprintf("%d", spec.PipelineParallel),
+		},
 	}); err != nil {
 		inst.State = InstError
 		inst.LastError = err.Error()
@@ -191,7 +220,7 @@ func (a *Agent) HealthCheck(ctx context.Context) {
 			// 引擎引用丢失（异常场景）：尝试重启
 			a.log.Warn("实例引擎引用丢失，尝试重启", "id", id)
 			_ = a.StopInstance(ctx, id)
-			if _, err := a.DeployInstance(ctx, id, inst.ModelName, modelFilePath(a.cfg.ModelsDir, inst.ModelName), inst.Engine, 0); err != nil {
+			if _, err := a.DeployInstance(ctx, id, inst.ModelName, specOf(inst, a.cfg.ModelsDir)); err != nil {
 				a.log.Error("实例重启失败", "id", id, "err", err)
 			}
 			continue
@@ -200,10 +229,22 @@ func (a *Agent) HealthCheck(ctx context.Context) {
 			a.log.Warn("实例健康检查失败，尝试重启", "id", id, "err", err)
 			// 自愈：先停后启（幂等）
 			_ = a.StopInstance(ctx, id)
-			if _, err := a.DeployInstance(ctx, id, inst.ModelName, modelFilePath(a.cfg.ModelsDir, inst.ModelName), inst.Engine, 0); err != nil {
+			if _, err := a.DeployInstance(ctx, id, inst.ModelName, specOf(inst, a.cfg.ModelsDir)); err != nil {
 				a.log.Error("实例重启失败", "id", id, "err", err)
 			}
 		}
+	}
+}
+
+// specOf 从实例记录构造部署规格（自愈恢复时复用原分片参数，M3）。
+func specOf(inst *Instance, modelsDir string) DeploySpec {
+	return DeploySpec{
+		ModelPath:        modelFilePath(modelsDir, inst.ModelName),
+		Engine:           inst.Engine,
+		VRAMQuota:        inst.VRAMUsed,
+		TensorParallel:   inst.TensorParallel,
+		PipelineParallel: inst.PipelineParallel,
+		Quant:            inst.Quant,
 	}
 }
 
