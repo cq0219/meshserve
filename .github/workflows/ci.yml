@@ -21,6 +21,10 @@ env:
   GO_VERSION: "1.25"
   GOPROXY: https://goproxy.cn,direct
 
+# 全局权限：release job 需要创建 GitHub Release
+permissions:
+  contents: write
+
 jobs:
   # ============ 1. 静态检查 ============
   lint:
