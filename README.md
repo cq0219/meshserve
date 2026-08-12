@@ -119,7 +119,7 @@ internal/observ          结构化日志
 |------|------|
 | **新增功能** | cluster 节点标签随 gossip 扩散（console_port/gateway_port）；run 启动广播服务端口；console `/api/instances` 跨节点聚合（本机直读 + 远端 HTTP 拉取，返回带 node_id 的实例视图）；前端实例表新增节点列（本机标识） |
 | **测试数据** | 新增 3 用例：cluster parseTags / TagsPropagate（真实双节点标签扩散）、console 多节点聚合（真实组网 + httptest 模拟远端实例）；受影响 3 包回归全绿 |
-| **CI 结果** | 待验证（推送后更新） |
+| **CI 结果** | 6/6 jobs 全绿（Lint / Unit / Cross-Compile ×3 / E2E） |
 | **备注** | 修复 M3 遗留：agent.Instance.StartedAt 恢复 json tag |
 
 ## 测试
