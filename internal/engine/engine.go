@@ -4,7 +4,7 @@ package engine
 
 import (
 	"context"
-	)
+)
 
 // ChatMessage 对话消息（OpenAI 兼容）。
 type ChatMessage struct {

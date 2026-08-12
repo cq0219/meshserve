@@ -34,12 +34,12 @@ type watcher struct {
 }
 
 var (
-	bucketMeta    = []byte("meta")
-	bucketConfig  = []byte("config")
-	bucketModels  = []byte("models")
-	keyPeers      = []byte("peers")
-	keyJoinToken  = []byte("join_token")
-	keyClusterID  = []byte("cluster_id")
+	bucketMeta   = []byte("meta")
+	bucketConfig = []byte("config")
+	bucketModels = []byte("models")
+	keyPeers     = []byte("peers")
+	keyJoinToken = []byte("join_token")
+	keyClusterID = []byte("cluster_id")
 )
 
 // Open 打开（或创建）数据目录下的 raftstore 数据库。
