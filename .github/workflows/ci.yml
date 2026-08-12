@@ -44,7 +44,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.1.2
+          version: v2.12.2
           args: --timeout=5m --enable=errcheck,govet,ineffassign,staticcheck,unused,gosimple
 
       - name: 漏洞扫描
