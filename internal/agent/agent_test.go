@@ -84,7 +84,7 @@ func TestHealthCheckFailedInstanceRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	// 部署 fake 后手动移除引擎引用模拟故障
-	a.DeployInstance(ctx, "inst-bad", "m", "/m/m", "fake", 0)
+	_, _ = a.DeployInstance(ctx, "inst-bad", "m", "/m/m", "fake", 0)
 	a.mu.Lock()
 	delete(a.engines, "inst-bad") // 模拟引擎丢失
 	a.mu.Unlock()

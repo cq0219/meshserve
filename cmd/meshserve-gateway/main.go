@@ -38,7 +38,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "打开存储失败:", err)
 		os.Exit(1)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	repo, err := modelrepo.New(store, cfg.ModelsDir, log)
 	if err != nil {

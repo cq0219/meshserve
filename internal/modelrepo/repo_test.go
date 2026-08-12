@@ -82,7 +82,7 @@ func TestListDelete(t *testing.T) {
 	repo, cleanup := newTestRepo(t)
 	defer cleanup()
 	d := filepath.Join(t.TempDir(), "m")
-	os.MkdirAll(d, 0o755)
+	_ = os.MkdirAll(d, 0o755)
 	_, _ = repo.RegisterLocal(context.Background(), "m1", d, "fake", "fp16", 1)
 	_, _ = repo.RegisterLocal(context.Background(), "m2", d, "fake", "fp16", 1)
 

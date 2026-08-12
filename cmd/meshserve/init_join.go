@@ -38,7 +38,7 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer store.Close()
+			defer func() { _ = store.Close() }()
 			if err := store.SetClusterMeta(clusterID, token); err != nil {
 				return fmt.Errorf("写入集群元数据失败: %w", err)
 			}
@@ -103,7 +103,7 @@ func newJoinCmd() *cobra.Command {
 				}
 				// 首次 join 时本地无集群元数据，令牌校验由引导节点执行；
 				// 此处仅记录令牌到配置。
-				store.Close()
+				_ = store.Close()
 				cfg.Cluster.JoinToken = token
 			}
 			cfg.NodeID = nodeID
