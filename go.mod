@@ -1,6 +1,6 @@
 module github.com/yourorg/meshserve
 
-go 1.25.5
+go 1.25.0
 
 require (
 	github.com/hashicorp/memberlist v0.6.0
