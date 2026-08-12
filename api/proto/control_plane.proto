@@ -1,0 +1,122 @@
+// 本文件为 MeshServe 控制面 RPC 的契约定义（M2 演进用）。
+//
+// 落地说明：V1 落地中控制面内部采用「同进程接口直连 + HTTP JSON」，
+// 该 Proto 作为对外服务契约与 M2 演进目标，经 buf/protoc 生成 gRPC 代码后启用。
+// 字段与 internal 包中的结构体一一对应，避免后续迁移时重定义。
+
+syntax = "proto3";
+
+package meshserve.v1;
+
+option go_package = "github.com/yourorg/meshserve/api/gen/meshserve/v1";
+
+// ---------- 节点代理服务（控制面 → Node Agent） ----------
+service AgentService {
+  // 部署推理实例
+  rpc DeployInstance(DeployInstanceRequest) returns (DeployInstanceResponse);
+  // 停止推理实例
+  rpc StopInstance(StopInstanceRequest) returns (StopInstanceResponse);
+  // 查询实例状态
+  rpc GetInstanceStatus(GetStatusRequest) returns (GetStatusResponse);
+  // 双向流：Agent 持续上报资源与实例状态，接收控制指令
+  rpc ReportStatus(stream StatusReport) returns (stream ControlCommand);
+}
+
+message DeployInstanceRequest {
+  string instance_id = 1;
+  string model_name = 2;
+  string model_path = 3;
+  string engine = 4;              // vllm | sglang | llamacpp | fake
+  int32  tensor_parallel = 5;     // 张量并行大小
+  string quant = 6;               // fp16 | bf16 | int8 | int4
+  uint64 vram_quota_bytes = 7;    // 显存配额（调度器决策）
+  map<string, string> params = 8; // 引擎附加参数
+}
+
+message DeployInstanceResponse {
+  string instance_id = 1;
+  string addr = 2;      // 实例服务地址
+  string state = 3;     // loading | ready | error
+}
+
+message StopInstanceRequest {
+  string instance_id = 1;
+}
+
+message StopInstanceResponse {
+  bool ok = 1;
+}
+
+message GetStatusRequest {
+  string instance_id = 1;  // 空 = 全部
+}
+
+message GetStatusResponse {
+  repeated InstanceStatus instances = 1;
+}
+
+message InstanceStatus {
+  string instance_id = 1;
+  string model_name = 2;
+  string state = 3;
+  string addr = 4;
+  string last_error = 5;
+}
+
+// 周期性资源上报
+message StatusReport {
+  string node_id = 1;
+  repeated GPUInfo gpus = 2;
+  uint64 mem_available_bytes = 3;
+  repeated InstanceStatus instances = 4;
+}
+
+message GPUInfo {
+  string name = 1;
+  uint64 vram_total = 2;
+  uint64 vram_used = 3;
+  int32  util_pct = 4;
+}
+
+// 控制面下发的控制指令
+message ControlCommand {
+  oneof cmd {
+    DeployInstanceRequest deploy = 1;
+    StopInstanceRequest stop = 2;
+  }
+}
+
+// ---------- 调度服务（控制台/CLI → 调度器） ----------
+service SchedulerService {
+  rpc DeployModel(DeployModelRequest) returns (DeployModelResponse);
+  rpc ScaleModel(ScaleModelRequest) returns (ScaleModelResponse);
+  rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+}
+
+message DeployModelRequest {
+  string model_name = 1;
+  string engine = 2;
+  string quant = 3;
+  uint64 vram_bytes = 4;
+  int32  replicas = 5;
+}
+
+message DeployModelResponse {
+  repeated string instance_ids = 1;
+  string placement = 2;   // node_id 列表
+}
+
+message ScaleModelRequest {
+  string model_name = 1;
+  int32 replicas = 2;
+}
+
+message ScaleModelResponse {
+  int32 replicas = 1;
+}
+
+message ListInstancesRequest {}
+
+message ListInstancesResponse {
+  repeated InstanceStatus instances = 1;
+}

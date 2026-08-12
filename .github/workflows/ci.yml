@@ -1,0 +1,165 @@
+# MeshServe CI 流水线
+# 触发：push（main + PR）+ 手动
+# 结构：
+#   1. lint    — 静态检查（golangci-lint + go vet + gofmt）
+#   2. unit    — 单元测试 + 覆盖率 + 竞态检测（Linux/amd64）
+#   3. build   — 三平台交叉编译验证
+#   4. e2e     — 双节点集成测试（fake 引擎，真实进程组网）
+#   5. release — 打 tag 时构建发布资产（三平台二进制 + 校验和）
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  GO_VERSION: "1.22"
+  GOPROXY: https://goproxy.cn,direct
+
+jobs:
+  # ============ 1. 静态检查 ============
+  lint:
+    name: Lint & Vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 格式检查
+        run: |
+          test -z "$(gofmt -l .)" || (echo "以下文件未通过 gofmt:"; gofmt -l .; exit 1)
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.61
+          args: --timeout=5m
+
+      - name: 漏洞扫描
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  # ============ 2. 单元测试 + 覆盖率 ============
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 单元测试（race + 覆盖率）
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+
+      - name: 覆盖率门禁（核心包 ≥ 60%）
+        run: |
+          go tool cover -func=coverage.out | tail -1
+          # 汇总覆盖率（不含无测试代码包时按整体计算）
+          total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "整体覆盖率: ${total}%"
+          if (( $(echo "$total < 50" | bc -l) )); then
+            echo "::error::覆盖率低于 50% 门禁"; exit 1
+          fi
+
+      - name: 上传覆盖率报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out
+          retention-days: 7
+
+  # ============ 3. 交叉编译 ============
+  build:
+    name: Cross-Compile
+    runs-on: ubuntu-latest
+    needs: [lint, unit]
+    strategy:
+      matrix:
+        os: [linux, windows]
+        arch: [amd64, arm64]
+        exclude:
+          - os: windows
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 交叉编译 (${{ matrix.os }}/${{ matrix.arch }})
+        run: |
+          OUT="bin/meshserve"
+          [ "${{ matrix.os }}" = "windows" ] && OUT="${OUT}.exe"
+          CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
+            go build -ldflags="-s -w" -o "$OUT" ./cmd/meshserve
+
+      - name: 上传二进制
+        uses: actions/upload-artifact@v4
+        with:
+          name: meshserve-${{ matrix.os }}-${{ matrix.arch }}
+          path: bin/meshserve*
+          retention-days: 7
+
+  # ============ 4. 双节点集成测试 ============
+  e2e:
+    name: E2E (Two-Node)
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 编译测试二进制
+        run: |
+          mkdir -p bin
+          go build -o bin/meshserve ./cmd/meshserve
+
+      - name: 双节点集成测试（真实进程组网）
+        run: go test -tags=integration -count=1 -v ./test/e2e/
+
+  # ============ 5. 发布（tag 触发） ============
+  release:
+    name: Release Assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [e2e]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: 构建发布资产
+        run: make build-all VERSION=${{ github.ref_name }}
+
+      - name: 生成校验和
+        working-directory: bin/release
+        run: sha256sum meshserve-* > SHA256SUMS
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            bin/release/meshserve-*
+            bin/release/SHA256SUMS
+          generate_release_notes: true

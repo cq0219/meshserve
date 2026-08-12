@@ -1,0 +1,42 @@
+# MeshServe 本地开发/演示环境（双节点 + fake 引擎）
+# 用法: make dev-up   （构建两个节点镜像并启动）
+version: "3.8"
+
+services:
+  node-a:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: mesh-node-a
+    command: ["run", "--engine", "fake"]
+    environment:
+      MESHSERVE_LOG_LEVEL: debug
+    volumes:
+      - mesh-data-a:/root/.meshserve
+    ports:
+      - "8080:8080"   # 网关
+    networks:
+      - meshnet
+
+  node-b:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: mesh-node-b
+    command: ["run", "--engine", "fake"]
+    environment:
+      MESHSERVE_LOG_LEVEL: debug
+    volumes:
+      - mesh-data-b:/root/.meshserve
+    ports:
+      - "8081:8080"
+    networks:
+      - meshnet
+
+volumes:
+  mesh-data-a:
+  mesh-data-b:
+
+networks:
+  meshnet:
+    driver: bridge

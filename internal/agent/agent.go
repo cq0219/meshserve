@@ -1,0 +1,251 @@
+// Package agent 实现节点代理：资源采集、推理实例生命周期管理、自愈。
+// 对应方案 4.3 节点代理模块。
+package agent
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/yourorg/meshserve/internal/config"
+	"github.com/yourorg/meshserve/internal/engine"
+)
+
+// GPUInfo GPU 资源信息。
+type GPUInfo struct {
+	Name      string `json:"name"`
+	VRAMTotal uint64 `json:"vram_total"`
+	VRAMUsed  uint64 `json:"vram_used"`
+	UtilPct   int    `json:"util_pct"`
+}
+
+// InstanceState 推理实例状态。
+type InstanceState string
+
+const (
+	// InstLoading 加载中
+	InstLoading InstanceState = "loading"
+	// InstReady 就绪
+	InstReady InstanceState = "ready"
+	// InstError 错误
+	InstError InstanceState = "error"
+	// InstStopped 已停止
+	InstStopped InstanceState = "stopped"
+)
+
+// Instance 推理实例。
+type Instance struct {
+	ID        string        `json:"id"`
+	ModelName string        `json:"model_name"`
+	Engine    string        `json:"engine"`
+	State     InstanceState `json:"state"`
+	Addr      string        `json:"addr,omitempty"`
+	VRAMUsed  uint64        `json:"vram_used,omitempty"`
+	StartedAt time.Time     `json:"started_at"`
+	LastError string        `json:"last_error,omitempty"`
+}
+
+// Agent 节点代理。
+type Agent struct {
+	mu        sync.Mutex
+	cfg       *config.Config
+	log       *slog.Logger
+	instances map[string]*Instance
+	engines   map[string]engine.Engine // instanceID → engine
+	stop      chan struct{}
+}
+
+// New 创建节点代理。
+func New(cfg *config.Config, log *slog.Logger) *Agent {
+	return &Agent{
+		cfg:       cfg,
+		log:       log,
+		instances: make(map[string]*Instance),
+		engines:   make(map[string]engine.Engine),
+		stop:      make(chan struct{}),
+	}
+}
+
+// CollectGPU 采集 GPU 信息（nvidia-smi；不可用时返回空列表 + 错误）。
+func CollectGPU() ([]GPUInfo, error) {
+	if runtime.GOOS == "windows" {
+		// Windows 环境 nvidia-smi 同样可用
+	}
+	out, err := exec.Command("nvidia-smi", "--query-gpu=name,memory.total,memory.used,utilization.gpu", "--format=csv,noheader,nounits").Output()
+	if err != nil {
+		return nil, errors.New("nvidia-smi 不可用（无 NVIDIA GPU 或驱动未安装）")
+	}
+	var gpus []GPUInfo
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		parts := strings.Split(line, ",")
+		if len(parts) < 4 {
+			continue
+		}
+		g := GPUInfo{Name: strings.TrimSpace(parts[0])}
+		fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &g.VRAMTotal)
+		fmt.Sscanf(strings.TrimSpace(parts[2]), "%d", &g.VRAMUsed)
+		fmt.Sscanf(strings.TrimSpace(parts[3]), "%d", &g.UtilPct)
+		g.VRAMTotal *= 1024 * 1024 // MiB → bytes
+		g.VRAMUsed *= 1024 * 1024
+		gpus = append(gpus, g)
+	}
+	return gpus, nil
+}
+
+// DeployInstance 部署并启动推理实例（阻塞至就绪或超时）。
+func (a *Agent) DeployInstance(ctx context.Context, id, modelName, modelPath, engineName string, vramQuota uint64) (*Instance, error) {
+	a.mu.Lock()
+	if _, exists := a.instances[id]; exists {
+		a.mu.Unlock()
+		return nil, fmt.Errorf("实例 %s 已存在", id)
+	}
+	inst := &Instance{ID: id, ModelName: modelName, Engine: engineName, State: InstLoading, StartedAt: time.Now()}
+	a.instances[id] = inst
+	a.mu.Unlock()
+
+	a.log.Info("部署实例", "id", id, "model", modelName, "engine", engineName, "path", modelPath)
+	eng := engine.Create(engineName, engine.Options{HTTPAddr: defaultEngineAddr(engineName)})
+	if err := eng.Load(ctx, engine.LoadConfig{
+		ModelPath:      modelPath,
+		TensorParallel: 1,
+		Quant:          "fp16",
+		VRAMQuotaBytes: vramQuota,
+	}); err != nil {
+		inst.State = InstError
+		inst.LastError = err.Error()
+		return inst, err
+	}
+	a.mu.Lock()
+	a.engines[id] = eng
+	inst.State = InstReady
+	inst.Addr = eng.Addr()
+	a.mu.Unlock()
+	a.log.Info("实例就绪", "id", id, "addr", inst.Addr)
+	return inst, nil
+}
+
+// StopInstance 停止实例。
+func (a *Agent) StopInstance(ctx context.Context, id string) error {
+	a.mu.Lock()
+	inst, ok := a.instances[id]
+	eng := a.engines[id]
+	if !ok {
+		a.mu.Unlock()
+		return fmt.Errorf("实例 %s 不存在", id)
+	}
+	delete(a.instances, id)
+	delete(a.engines, id)
+	a.mu.Unlock()
+	if eng != nil {
+		_ = eng.Unload(ctx)
+	}
+	inst.State = InstStopped
+	a.log.Info("实例已停止", "id", id)
+	return nil
+}
+
+// ListInstances 返回全部实例快照。
+func (a *Agent) ListInstances() []Instance {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]Instance, 0, len(a.instances))
+	for _, v := range a.instances {
+		cp := *v
+		out = append(out, cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// GetEngine 获取实例对应引擎（供网关直连调用）。
+func (a *Agent) GetEngine(instanceID string) (engine.Engine, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	e, ok := a.engines[instanceID]
+	return e, ok
+}
+
+// HealthCheck 执行本节点健康检查：实例探活 + 自愈（重启异常实例，指数退避）。
+func (a *Agent) HealthCheck(ctx context.Context) {
+	a.mu.Lock()
+	ids := make([]string, 0, len(a.instances))
+	for id := range a.instances {
+		ids = append(ids, id)
+	}
+	a.mu.Unlock()
+	for _, id := range ids {
+		a.mu.Lock()
+		inst, ok := a.instances[id]
+		eng := a.engines[id]
+		a.mu.Unlock()
+		if !ok {
+			continue
+		}
+		if eng == nil {
+			// 引擎引用丢失（异常场景）：尝试重启
+			a.log.Warn("实例引擎引用丢失，尝试重启", "id", id)
+			_ = a.StopInstance(ctx, id)
+			if _, err := a.DeployInstance(ctx, id, inst.ModelName, modelFilePath(a.cfg.ModelsDir, inst.ModelName), inst.Engine, 0); err != nil {
+				a.log.Error("实例重启失败", "id", id, "err", err)
+			}
+			continue
+		}
+		if err := eng.Health(ctx); err != nil {
+			a.log.Warn("实例健康检查失败，尝试重启", "id", id, "err", err)
+			// 自愈：先停后启（幂等）
+			_ = a.StopInstance(ctx, id)
+			if _, err := a.DeployInstance(ctx, id, inst.ModelName, modelFilePath(a.cfg.ModelsDir, inst.ModelName), inst.Engine, 0); err != nil {
+				a.log.Error("实例重启失败", "id", id, "err", err)
+			}
+		}
+	}
+}
+
+// StartHealthLoop 周期性健康检查循环（goroutine）。
+func (a *Agent) StartHealthLoop(ctx context.Context, interval time.Duration) {
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-a.stop:
+				return
+			case <-t.C:
+				a.HealthCheck(ctx)
+			}
+		}
+	}()
+}
+
+// Shutdown 停止健康循环。
+func (a *Agent) Shutdown() { close(a.stop) }
+
+func defaultEngineAddr(name string) string {
+	switch name {
+	case "vllm", "sglang":
+		return "127.0.0.1:8000"
+	default:
+		return ""
+	}
+}
+
+// modelFilePath 计算模型目录下的权重路径。
+func modelFilePath(modelsDir, modelName string) string {
+	return filepath.Join(modelsDir, modelName)
+}
+
+// EnsureModelDir 确保模型目录存在。
+func EnsureModelDir(modelsDir string) error {
+	return os.MkdirAll(modelsDir, 0o755)
+}

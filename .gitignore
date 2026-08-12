@@ -1,0 +1,18 @@
+# 编译产物
+/bin/
+/dist/
+*.exe
+*.test
+
+# 本地数据
+.meshserve/
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 系统
+.DS_Store
+Thumbs.db

@@ -1,0 +1,15 @@
+[Unit]
+Description=MeshServe LLM Inference Node
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/meshserve run
+Restart=on-failure
+RestartSec=5
+# 生产建议以专用用户运行
+User=meshserve
+Group=meshserve
+
+[Install]
+WantedBy=multi-user.target
