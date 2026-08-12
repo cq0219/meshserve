@@ -58,7 +58,7 @@ func TestEstimateVRAM_Tiers(t *testing.T) {
 	fp16 := EstimateVRAM(7, "fp16")
 	int8 := EstimateVRAM(7, "int8")
 	int4 := EstimateVRAM(7, "int4")
-	if !(fp16 > int8 && int8 > int4) {
+	if fp16 <= int8 || int8 <= int4 {
 		t.Errorf("显存估算应随量化递减: fp16=%d int8=%d int4=%d", fp16, int8, int4)
 	}
 }
