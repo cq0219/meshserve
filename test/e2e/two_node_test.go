@@ -88,6 +88,13 @@ func TestTwoNodeCluster(t *testing.T) {
 	writeConfig(t, cfgA, "it-node-a", dataA, "127.0.0.1", 17946, "127.0.0.1:18080", "127.0.0.1:19100", "")
 	writeConfig(t, cfgB, "it-node-b", dataB, "127.0.0.1", 17947, "127.0.0.1:18081", "127.0.0.1:19101", "127.0.0.1:17946")
 
+	// ---- 先在 B 注册模型（此时无 run 进程占用 db 锁）----
+	reg := exec.Command(binPath(), "model", "register", "it-model",
+		"--path", filepath.Join(base, "model"), "--engine", "fake", "--params", "0.5", "--config", cfgB)
+	if out, err := reg.CombinedOutput(); err != nil {
+		t.Fatalf("模型注册失败: %v\n%s", err, out)
+	}
+
 	// ---- 启动 A（引导节点）----
 	runA := exec.Command(binPath(), "run", "--config", cfgA)
 	if err := runA.Start(); err != nil {
@@ -98,7 +105,7 @@ func TestTwoNodeCluster(t *testing.T) {
 		t.Fatalf("A 网关未就绪: %v", err)
 	}
 
-	// ---- 启动 B（join A）----
+	// ---- 启动 B（join A；run 启动时自动恢复已注册模型）----
 	runB := exec.Command(binPath(), "run", "--config", cfgB)
 	if err := runB.Start(); err != nil {
 		t.Fatalf("B run 启动失败: %v", err)
@@ -106,13 +113,6 @@ func TestTwoNodeCluster(t *testing.T) {
 	defer runB.Process.Kill()
 	if err := waitHTTP("http://127.0.0.1:18081/healthz", 15*time.Second); err != nil {
 		t.Fatalf("B 网关未就绪: %v", err)
-	}
-
-	// ---- 在 B 注册模型 ----
-	reg := exec.Command(binPath(), "model", "register", "it-model",
-		"--path", filepath.Join(base, "model"), "--engine", "fake", "--params", "0.5", "--config", cfgB)
-	if out, err := reg.CombinedOutput(); err != nil {
-		t.Fatalf("模型注册失败: %v\n%s", err, out)
 	}
 	// 等待 B 自动部署恢复
 	time.Sleep(2 * time.Second)
@@ -153,6 +153,13 @@ func TestSingleNodeAPI(t *testing.T) {
 	cfg := filepath.Join(base, "s.yaml")
 	writeConfig(t, cfg, "it-solo", filepath.Join(base, "data"), "127.0.0.1", 17950, "127.0.0.1:18085", "127.0.0.1:19105", "")
 
+	// 先注册模型（此时无 run 进程占用 db 锁）
+	reg := exec.Command(binPath(), "model", "register", "solo-model",
+		"--path", filepath.Join(base, "m"), "--engine", "fake", "--params", "0.5", "--config", cfg)
+	if out, err := reg.CombinedOutput(); err != nil {
+		t.Fatalf("注册失败: %v\n%s", err, out)
+	}
+
 	run := exec.Command(binPath(), "run", "--config", cfg)
 	if err := run.Start(); err != nil {
 		t.Fatalf("run 启动失败: %v", err)
@@ -161,13 +168,7 @@ func TestSingleNodeAPI(t *testing.T) {
 	if err := waitHTTP("http://127.0.0.1:18085/healthz", 15*time.Second); err != nil {
 		t.Fatal(err)
 	}
-
-	// 注册并等自动部署
-	reg := exec.Command(binPath(), "model", "register", "solo-model",
-		"--path", filepath.Join(base, "m"), "--engine", "fake", "--params", "0.5", "--config", cfg)
-	if out, err := reg.CombinedOutput(); err != nil {
-		t.Fatalf("注册失败: %v\n%s", err, out)
-	}
+	// run 启动时自动恢复已注册模型，等待部署完成
 	time.Sleep(2 * time.Second)
 
 	// 模型列表应包含
