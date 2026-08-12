@@ -60,8 +60,8 @@
   </div>
 
   <div class="panel">
-    <h2>本机实例</h2>
-    <table><thead><tr><th>实例 ID</th><th>模型</th><th>引擎</th><th>状态</th><th>地址</th></tr></thead><tbody id="instsBody"></tbody></table>
+    <h2>集群实例</h2>
+    <table><thead><tr><th>节点</th><th>实例 ID</th><th>模型</th><th>引擎</th><th>状态</th><th>地址</th></tr></thead><tbody id="instsBody"></tbody></table>
   </div>
 </div>
 
@@ -104,10 +104,11 @@ async function loadAll() {
 
     const ib = document.getElementById('instsBody');
     ib.innerHTML = '';
-    if (insts.length === 0) ib.innerHTML = '<tr><td colspan="5" class="muted">暂无实例</td></tr>';
+    if (insts.length === 0) ib.innerHTML = '<tr><td colspan="6" class="muted">暂无实例</td></tr>';
     for (const i of insts) {
       const stateCls = i.state === 'ready' ? 'ok' : (i.state === 'loading' ? 'warn' : 'bad');
-      ib.innerHTML += `<tr><td>${esc(i.id)}</td><td>${esc(i.model_name)}</td><td>${esc(i.engine)}</td>` +
+      const nodeTag = i.node_id === st.self_node_id ? '本机' : i.node_id;
+      ib.innerHTML += `<tr><td>${esc(nodeTag)}</td><td>${esc(i.id)}</td><td>${esc(i.model_name)}</td><td>${esc(i.engine)}</td>` +
         `<td><span class="tag ${stateCls}">${esc(i.state)}</span></td><td>${esc(i.addr||'—')}</td></tr>`;
     }
   } catch (e) {

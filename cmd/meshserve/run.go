@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -20,6 +21,15 @@ import (
 	"github.com/yourorg/meshserve/internal/raftstore"
 	"github.com/yourorg/meshserve/internal/scheduler"
 )
+
+// portOf 提取 host:port 地址中的端口部分（供节点标签广播，M4）。
+func portOf(addr string) string {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return ""
+	}
+	return port
+}
 
 // newRunCmd 启动节点（Node Agent + 网关 + 健康探针）。
 func newRunCmd() *cobra.Command {
@@ -67,7 +77,12 @@ func newRunCmd() *cobra.Command {
 				BindPort:  cfg.Cluster.BindPort,
 				JoinAddr:  cfg.Cluster.JoinAddr,
 				EnableTLS: cfg.Cluster.EnableTLS,
-				Logger:    log,
+				// 服务端口标签：随 NodeMeta gossip 扩散，供控制台跨节点聚合实例视图（M4）
+				Tags: map[string]string{
+					"console_port": portOf(cfg.Console.HTTPAddr),
+					"gateway_port": portOf(cfg.Gateway.HTTPAddr),
+				},
+				Logger: log,
 			})
 			if err != nil {
 				return fmt.Errorf("启动成员管理失败: %w", err)

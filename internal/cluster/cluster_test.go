@@ -130,3 +130,56 @@ func TestMembers_SelfIncluded(t *testing.T) {
 		t.Error("成员表应包含本节点")
 	}
 }
+
+// TestParseTags 扁平标签解析（M4）。
+func TestParseTags(t *testing.T) {
+	tags := parseTags("console_port=8443,gateway_port=8080")
+	if tags["console_port"] != "8443" || tags["gateway_port"] != "8080" {
+		t.Errorf("解析结果错误: %v", tags)
+	}
+	if parseTags("") != nil {
+		t.Error("空串应返回 nil")
+	}
+	if parseTags("no-equals-sign") != nil {
+		t.Error("无 '=' 的片段应被忽略")
+	}
+}
+
+// TestTagsPropagate 节点标签随 gossip 扩散到全网（M4）。
+func TestTagsPropagate(t *testing.T) {
+	a, err := New(context.Background(), Options{
+		NodeID: "tag-a", Role: "bootstrap", BindAddr: "127.0.0.1", BindPort: 0,
+		EnableTLS: false, Logger: testLogger(),
+	})
+	if err != nil {
+		t.Fatalf("A 创建失败: %v", err)
+	}
+	defer func() { _ = a.Shutdown() }()
+
+	b, err := New(context.Background(), Options{
+		NodeID:    "tag-b",
+		Role:      "member",
+		BindAddr:  "127.0.0.1",
+		BindPort:  0,
+		JoinAddr:  "127.0.0.1:" + itoa(a.list.LocalNode().Port),
+		EnableTLS: false,
+		Tags:      map[string]string{"console_port": "38443", "gateway_port": "38080"},
+		Logger:    testLogger(),
+	})
+	if err != nil {
+		t.Fatalf("B 创建失败: %v", err)
+	}
+	defer func() { _ = b.Shutdown() }()
+
+	// 等待收敛且标签扩散
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, m := range a.Members() {
+			if m.ID == "tag-b" && m.Tags["console_port"] == "38443" {
+				return // 标签已扩散
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Error("节点标签未扩散到成员表")
+}

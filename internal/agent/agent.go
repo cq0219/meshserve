@@ -50,11 +50,11 @@ type Instance struct {
 	Addr      string        `json:"addr,omitempty"`
 	VRAMUsed  uint64        `json:"vram_used,omitempty"`
 	// TensorParallel / PipelineParallel / Quant 部署分片信息（自愈恢复时复用，M3）
-	TensorParallel   int    `json:"tensor_parallel,omitempty"`
-	PipelineParallel int    `json:"pipeline_parallel,omitempty"`
-	Quant            string `json:"quant,omitempty"`
-	StartedAt        time.Time
-	LastError        string `json:"last_error,omitempty"`
+	TensorParallel   int       `json:"tensor_parallel,omitempty"`
+	PipelineParallel int       `json:"pipeline_parallel,omitempty"`
+	Quant            string    `json:"quant,omitempty"`
+	StartedAt        time.Time `json:"started_at"`
+	LastError        string    `json:"last_error,omitempty"`
 }
 
 // DeploySpec 实例部署规格（由调度器决策/恢复流程传入，M3 分片）。

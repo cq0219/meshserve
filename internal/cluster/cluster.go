@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,6 +95,8 @@ type Options struct {
 	JoinAddr string
 	// EnableTLS 启用加密 gossip（生产建议开启）
 	EnableTLS bool
+	// Tags 本节点资源/服务标签（随 NodeMeta gossip 扩散，如 console_port/gateway_port）
+	Tags map[string]string
 	// Logger 日志器
 	Logger *slog.Logger
 }
@@ -105,7 +108,7 @@ func New(ctx context.Context, opts Options) (*Manager, error) {
 		log = slog.Default()
 	}
 	m := &Manager{
-		self:   Member{ID: opts.NodeID, Role: opts.Role, Addr: opts.BindAddr, Port: opts.BindPort, State: StateAlive},
+		self:   Member{ID: opts.NodeID, Role: opts.Role, Addr: opts.BindAddr, Port: opts.BindPort, State: StateAlive, Tags: opts.Tags},
 		events: make(chan Event, 64),
 		subs:   make([]chan Event, 0),
 		log:    log,
@@ -162,6 +165,7 @@ func (m *Manager) Members() []Member {
 			Port:  int(mm.Port),
 			Role:  meta.Role,
 			State: stateOf(mm.State),
+			Tags:  parseTags(meta.Tags),
 		})
 	}
 	return out
@@ -235,6 +239,23 @@ func flattenTags(tags map[string]string) string {
 			out += ","
 		}
 		out += k + "=" + v
+	}
+	return out
+}
+
+// parseTags 将扁平化的 key=value,key=value 还原为 map。
+func parseTags(flat string) map[string]string {
+	if flat == "" {
+		return nil
+	}
+	out := map[string]string{}
+	for _, pair := range strings.Split(flat, ",") {
+		if kv := strings.SplitN(pair, "=", 2); len(kv) == 2 {
+			out[kv[0]] = kv[1]
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

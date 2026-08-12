@@ -1,13 +1,17 @@
 // Package console 提供 Web 控制台：REST API + 内嵌前端（Go embed，单二进制）。
 // 对应架构方案 M2 交付：集群总览、节点管理、模型管理、实例监控。
+// M4 增强：/api/instances 提供集群级实例视图（跨节点聚合）。
 package console
 
 import (
 	"embed"
 	"encoding/json"
+	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/yourorg/meshserve/internal/agent"
 	"github.com/yourorg/meshserve/internal/cluster"
@@ -26,7 +30,7 @@ func Handler(store *raftstore.Store, members *cluster.Manager, repo *modelrepo.R
 	mux.HandleFunc("GET /api/status", statusHandler(store, members))
 	mux.HandleFunc("GET /api/nodes", nodesHandler(members))
 	mux.HandleFunc("GET /api/models", modelsHandler(repo))
-	mux.HandleFunc("GET /api/instances", instancesHandler(ag))
+	mux.HandleFunc("GET /api/instances", instancesHandler(members, ag))
 
 	// 静态资源（内嵌前端）
 	sub, err := fs.Sub(webFS, "web")
@@ -89,9 +93,59 @@ func modelsHandler(repo *modelrepo.Repo) http.HandlerFunc {
 	}
 }
 
-// instancesHandler 本机实例列表。
-func instancesHandler(ag *agent.Agent) http.HandlerFunc {
+// instancesHandler 集群级实例视图（M4）：聚合本机 + 所有在线节点的实例。
+// 远端节点通过其 console 端口 HTTP 拉取 /api/instances（标签 console_port 由 gossip 扩散）。
+func instancesHandler(members *cluster.Manager, ag *agent.Agent) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, ag.ListInstances())
+		self := members.Self().ID
+		all := []map[string]any{}
+
+		// 1. 本机实例（直读）
+		for _, inst := range ag.ListInstances() {
+			all = append(all, instanceView(inst, self))
+		}
+
+		// 2. 远端在线节点（HTTP 拉取，失败跳过——不阻塞本地视图）
+		client := &http.Client{Timeout: 2 * time.Second}
+		for _, m := range members.Members() {
+			if m.ID == self || m.State != cluster.StateAlive {
+				continue
+			}
+			port := m.Tags["console_port"]
+			if port == "" {
+				continue
+			}
+			host := hostOf(m.Addr)
+			url := "http://" + host + ":" + port + "/api/instances"
+			resp, err := client.Get(url)
+			if err != nil {
+				continue // 远端 console 未就绪/不可达：跳过
+			}
+			var remote []agent.Instance
+			_ = json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&remote)
+			_ = resp.Body.Close()
+			for _, inst := range remote {
+				all = append(all, instanceView(inst, m.ID))
+			}
+		}
+		writeJSON(w, http.StatusOK, all)
 	}
+}
+
+// instanceView 实例 + 所属节点 ID（供前端按节点分组展示）。
+func instanceView(inst agent.Instance, nodeID string) map[string]any {
+	raw, _ := json.Marshal(inst)
+	var v map[string]any
+	_ = json.Unmarshal(raw, &v)
+	v["node_id"] = nodeID
+	return v
+}
+
+// hostOf 提取 host:port 中的主机部分。
+func hostOf(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return host
 }
