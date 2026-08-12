@@ -49,7 +49,7 @@ func newModelRegisterCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer store.Close()
+			defer func() { _ = store.Close() }()
 
 			// 显存估算：优先显式 vram，其次参数量
 			var vramBytes uint64
@@ -106,7 +106,7 @@ func newModelListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer store.Close()
+			defer func() { _ = store.Close() }()
 			names, err := store.ListModels()
 			if err != nil {
 				return err
@@ -149,7 +149,7 @@ func newModelRemoveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer store.Close()
+			defer func() { _ = store.Close() }()
 			if err := store.DeleteModel(name); err != nil {
 				return err
 			}
@@ -178,7 +178,7 @@ func newStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer store.Close()
+			defer func() { _ = store.Close() }()
 			fmt.Println("=== MeshServe 集群状态 ===")
 			if id, err := store.ClusterID(); err == nil {
 				fmt.Printf("集群 ID:   %s\n", id)
