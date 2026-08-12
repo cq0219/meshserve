@@ -114,6 +114,44 @@ func (s *Scheduler) Place(ctx context.Context, m *raftstore.Model) (*Placement, 
 	return &Placement{NodeID: best, InstanceID: instID, Engine: m.Engine}, nil
 }
 
+// PlaceN 为模型放置 n 个副本（多副本支持，M2）。
+// 优先分散到不同节点（故障域分散），不足时允许同节点多副本兜底。
+func (s *Scheduler) PlaceN(ctx context.Context, m *raftstore.Model, n int) ([]*Placement, error) {
+	if n <= 0 {
+		n = 1
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// 收集所有显存合格的候选节点（按评分排序）
+	type cand struct {
+		node  string
+		score int
+	}
+	var cands []cand
+	for id, res := range s.resources {
+		if s.nodeFreeVRAM(res) >= m.VRAMBytes {
+			cands = append(cands, cand{node: id, score: s.score(res, m)})
+		}
+	}
+	if len(cands) == 0 {
+		return nil, fmt.Errorf("无可放置节点：所有节点显存不足（模型需要 %d 字节）", m.VRAMBytes)
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].score > cands[j].score })
+
+	// 分配：循环分散到候选节点（节点数 ≥ n 时完全分散；否则同节点多副本兜底）
+	placements := make([]*Placement, 0, n)
+	for i := 0; i < n; i++ {
+		idx := i % len(cands)
+		placements = append(placements, &Placement{
+			NodeID:     cands[idx].node,
+			InstanceID: instanceID(m.Name),
+			Engine:     m.Engine,
+		})
+	}
+	return placements, nil
+}
+
 // nodeFreeVRAM 计算节点可分配显存（取所有 GPU 空闲之和，简单模型）。
 func (s *Scheduler) nodeFreeVRAM(r *NodeResources) uint64 {
 	var free uint64

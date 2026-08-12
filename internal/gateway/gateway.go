@@ -193,12 +193,20 @@ func (g *Gateway) handleCompletions(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"requests_total":  g.stats.Requests,
-		"errors_total":    g.stats.Errors,
-		"streams_total":   g.stats.Streams,
-		"last_latency_ms": g.stats.LastLatencyMS,
-	})
+	// Prometheus 文本格式（M2 可观测性）
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	_, _ = fmt.Fprintf(w, "# HELP meshserve_requests_total 网关累计请求数\n")
+	_, _ = fmt.Fprintf(w, "# TYPE meshserve_requests_total counter\n")
+	_, _ = fmt.Fprintf(w, "meshserve_requests_total %d\n", g.stats.Requests)
+	_, _ = fmt.Fprintf(w, "# HELP meshserve_errors_total 网关累计错误数\n")
+	_, _ = fmt.Fprintf(w, "# TYPE meshserve_errors_total counter\n")
+	_, _ = fmt.Fprintf(w, "meshserve_errors_total %d\n", g.stats.Errors)
+	_, _ = fmt.Fprintf(w, "# HELP meshserve_streams_total 流式请求数\n")
+	_, _ = fmt.Fprintf(w, "# TYPE meshserve_streams_total counter\n")
+	_, _ = fmt.Fprintf(w, "meshserve_streams_total %d\n", g.stats.Streams)
+	_, _ = fmt.Fprintf(w, "# HELP meshserve_last_latency_ms 最近一次请求延迟(ms)\n")
+	_, _ = fmt.Fprintf(w, "# TYPE meshserve_last_latency_ms gauge\n")
+	_, _ = fmt.Fprintf(w, "meshserve_last_latency_ms %d\n", g.stats.LastLatencyMS)
 }
 
 // validateChatReq 请求校验：model 与 messages 必填。

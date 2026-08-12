@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MeshServe 控制台</title>
+<style>
+  :root {
+    --primary: #1a4f8b; --accent: #d97706; --ok: #15803d;
+    --bg: #f5f7fb; --card: #fff; --text: #1f2937; --muted: #6b7280; --border: #e2e8f0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--primary); color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; flex: 1; }
+  header .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); display: inline-block; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .card .value { font-size: 26px; font-weight: 700; color: var(--primary); }
+  .card .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  .panel h2 { font-size: 15px; color: var(--primary); margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px; border-bottom: 2px solid var(--border); }
+  td { padding: 8px; border-bottom: 1px solid var(--border); }
+  .tag { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; color: #fff; }
+  .tag.ok { background: var(--ok); } .tag.warn { background: var(--accent); } .tag.bad { background: #b91c1c; }
+  .tag.info { background: var(--primary); } .tag.gray { background: var(--muted); }
+  .refresh { background: var(--accent); color: #fff; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .refresh:hover { opacity: 0.9; }
+  .muted { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="status-dot" id="dot"></span>
+  <h1>MeshServe 控制台</h1>
+  <span class="muted" id="self-node" style="color:#cbd5e1"></span>
+  <button class="refresh" onclick="loadAll()">刷新</button>
+</header>
+
+<div class="container">
+  <div class="cards">
+    <div class="card"><div class="label">集群 ID</div><div class="value" id="clusterId" style="font-size:16px">—</div></div>
+    <div class="card"><div class="label">节点</div><div class="value" id="nodeCount">—</div><div class="sub" id="nodeOnline"></div></div>
+    <div class="card"><div class="label">Leader</div><div class="value" id="leader" style="font-size:16px">—</div></div>
+    <div class="card"><div class="label">已注册模型</div><div class="value" id="modelCount">—</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>节点列表</h2>
+    <table><thead><tr><th>节点 ID</th><th>地址</th><th>角色</th><th>状态</th></tr></thead><tbody id="nodesBody"></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>模型列表</h2>
+    <table><thead><tr><th>名称</th><th>引擎</th><th>量化</th><th>显存需求</th><th>副本数</th></tr></thead><tbody id="modelsBody"></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>本机实例</h2>
+    <table><thead><tr><th>实例 ID</th><th>模型</th><th>引擎</th><th>状态</th><th>地址</th></tr></thead><tbody id="instsBody"></tbody></table>
+  </div>
+</div>
+
+<script>
+async function getJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(url + ' -> ' + r.status);
+  return r.json();
+}
+
+async function loadAll() {
+  try {
+    const [st, nodes, models, insts] = await Promise.all([
+      getJSON('/api/status'), getJSON('/api/nodes'), getJSON('/api/models'), getJSON('/api/instances')
+    ]);
+    document.getElementById('dot').style.background = 'var(--ok)';
+    document.getElementById('clusterId').textContent = st.cluster_id || '未初始化';
+    document.getElementById('nodeCount').textContent = st.node_count;
+    document.getElementById('nodeOnline').textContent = '在线 ' + st.node_online + ' / ' + st.node_count;
+    document.getElementById('leader').textContent = st.leader || '—';
+    document.getElementById('self-node').textContent = '本机: ' + st.self_node_id;
+    document.getElementById('modelCount').textContent = models.length;
+
+    const nb = document.getElementById('nodesBody');
+    nb.innerHTML = '';
+    for (const n of nodes) {
+      const stateCls = n.state === 'alive' ? 'ok' : (n.state === 'suspect' ? 'warn' : 'bad');
+      nb.innerHTML += `<tr><td>${esc(n.id)}</td><td>${esc(n.addr)}:${n.port}</td>` +
+        `<td><span class="tag info">${esc(n.role||'member')}</span></td>` +
+        `<td><span class="tag ${stateCls}">${esc(n.state)}</span></td></tr>`;
+    }
+
+    const mb = document.getElementById('modelsBody');
+    mb.innerHTML = '';
+    for (const m of models) {
+      mb.innerHTML += `<tr><td>${esc(m.name)}</td><td><span class="tag info">${esc(m.engine)}</span></td>` +
+        `<td><span class="tag gray">${esc(m.quant||'fp16')}</span></td>` +
+        `<td>${fmtBytes(m.vram_bytes)}</td><td>${m.replicas||1}</td></tr>`;
+    }
+
+    const ib = document.getElementById('instsBody');
+    ib.innerHTML = '';
+    if (insts.length === 0) ib.innerHTML = '<tr><td colspan="5" class="muted">暂无实例</td></tr>';
+    for (const i of insts) {
+      const stateCls = i.state === 'ready' ? 'ok' : (i.state === 'loading' ? 'warn' : 'bad');
+      ib.innerHTML += `<tr><td>${esc(i.id)}</td><td>${esc(i.model_name)}</td><td>${esc(i.engine)}</td>` +
+        `<td><span class="tag ${stateCls}">${esc(i.state)}</span></td><td>${esc(i.addr||'—')}</td></tr>`;
+    }
+  } catch (e) {
+    document.getElementById('dot').style.background = '#b91c1c';
+    console.error('加载失败:', e);
+  }
+}
+
+function fmtBytes(b) {
+  if (!b) return '—';
+  if (b >= 1<<30) return (b/(1<<30)).toFixed(1) + ' GB';
+  if (b >= 1<<20) return (b/(1<<20)).toFixed(0) + ' MB';
+  return b + ' B';
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+loadAll();
+setInterval(loadAll, 10000);
+</script>
+</body>
+</html>

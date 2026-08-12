@@ -96,3 +96,78 @@ func TestInstanceID(t *testing.T) {
 		t.Errorf("实例 ID 格式异常: %s", a)
 	}
 }
+
+// TestPlaceN_MultiNode 多节点多副本：副本分散到不同节点。
+func TestPlaceN_MultiNode(t *testing.T) {
+	s := New(nil, nil, nil)
+	s.UpdateResources(res("node-a", 80<<30, 80<<30))
+	s.UpdateResources(res("node-b", 80<<30, 80<<30))
+	s.UpdateResources(res("node-c", 80<<30, 80<<30))
+
+	m := &raftstore.Model{Name: "qwen", VRAMBytes: 10 << 30}
+	ps, err := s.PlaceN(context.Background(), m, 3)
+	if err != nil {
+		t.Fatalf("PlaceN 失败: %v", err)
+	}
+	if len(ps) != 3 {
+		t.Fatalf("期望 3 个副本，实际 %d", len(ps))
+	}
+	seen := map[string]bool{}
+	for _, p := range ps {
+		seen[p.NodeID] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("3 副本应分散到 3 节点，实际 %d 个不同节点", len(seen))
+	}
+	ids := map[string]bool{}
+	for _, p := range ps {
+		if ids[p.InstanceID] {
+			t.Error("实例 ID 不应重复")
+		}
+		ids[p.InstanceID] = true
+	}
+}
+
+// TestPlaceN_SingleNode 单节点多副本：允许同节点兜底。
+func TestPlaceN_SingleNode(t *testing.T) {
+	s := New(nil, nil, nil)
+	s.UpdateResources(res("node-a", 80<<30, 80<<30))
+
+	m := &raftstore.Model{Name: "m", VRAMBytes: 10 << 30}
+	ps, err := s.PlaceN(context.Background(), m, 3)
+	if err != nil {
+		t.Fatalf("PlaceN 失败: %v", err)
+	}
+	if len(ps) != 3 {
+		t.Fatalf("期望 3 副本，实际 %d", len(ps))
+	}
+	for _, p := range ps {
+		if p.NodeID != "node-a" {
+			t.Errorf("单节点场景应全部放置到 node-a，实际 %s", p.NodeID)
+		}
+	}
+}
+
+// TestPlaceN_Insufficient 显存不足应报错。
+func TestPlaceN_Insufficient(t *testing.T) {
+	s := New(nil, nil, nil)
+	s.UpdateResources(res("node-a", 16<<30, 16<<30))
+	m := &raftstore.Model{Name: "big", VRAMBytes: 80 << 30}
+	if _, err := s.PlaceN(context.Background(), m, 2); err == nil {
+		t.Fatal("显存不足应返回错误")
+	}
+}
+
+// TestPlaceN_Zero 副本数为 0 时应按 1 处理。
+func TestPlaceN_Zero(t *testing.T) {
+	s := New(nil, nil, nil)
+	s.UpdateResources(res("node-a", 80<<30, 80<<30))
+	m := &raftstore.Model{Name: "m", VRAMBytes: 1 << 30}
+	ps, err := s.PlaceN(context.Background(), m, 0)
+	if err != nil {
+		t.Fatalf("PlaceN(0) 失败: %v", err)
+	}
+	if len(ps) != 1 {
+		t.Errorf("副本数 0 应按 1 处理，实际 %d", len(ps))
+	}
+}

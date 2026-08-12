@@ -22,10 +22,18 @@ type Config struct {
 	Cluster ClusterConfig `yaml:"cluster" json:"cluster"`
 	// Gateway 网关配置
 	Gateway GatewayConfig `yaml:"gateway" json:"gateway"`
+	// Console Web 控制台配置
+	Console ConsoleConfig `yaml:"console" json:"console"`
 	// Agent 节点代理配置
 	Agent AgentConfig `yaml:"agent" json:"agent"`
 	// ModelsDir 模型存储根目录
 	ModelsDir string `yaml:"models_dir" json:"models_dir"`
+}
+
+// ConsoleConfig Web 控制台配置。
+type ConsoleConfig struct {
+	// HTTPAddr 控制台 HTTP 监听地址
+	HTTPAddr string `yaml:"http_addr" json:"http_addr"`
 }
 
 // LogConfig 日志配置。
@@ -78,6 +86,9 @@ func Default() *Config {
 		},
 		Gateway: GatewayConfig{
 			HTTPAddr: "0.0.0.0:8080",
+		},
+		Console: ConsoleConfig{
+			HTTPAddr: "0.0.0.0:8443",
 		},
 		Agent: AgentConfig{
 			RPCAddr: "0.0.0.0:9100",

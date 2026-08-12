@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yourorg/meshserve/internal/config"
+	"github.com/yourorg/meshserve/internal/mdns"
 	"github.com/yourorg/meshserve/internal/raftstore"
 )
 
@@ -120,11 +121,16 @@ func newJoinCmd() *cobra.Command {
 			defer func() { _ = mgr.Shutdown() }()
 
 			if addr == "" {
-				// 未指定地址：尝试自动发现（mDNS 由 meshserve run 的 agent 提供；
-				// 此 CLI 简化为等待 join 参数，指引用户）
-				log.Warn("未指定加入地址，跳过自动发现（V1 请提供地址；mDNS 自动发现将在 M2 接入）")
-				fmt.Println("请提供引导节点地址，例如：meshserve join --token <token> 192.168.1.10")
-				return nil
+				// M2 自动发现：通过 mDNS 在局域网寻找引导节点
+				log.Info("未指定加入地址，尝试 mDNS 自动发现…")
+				svc, err := mdns.DiscoverFirst(ctx, 3*time.Second, log)
+				if err != nil {
+					return fmt.Errorf("mDNS 自动发现失败（可显式指定地址重试）: %w", err)
+				}
+				addr = svc.Addr()
+				cfg.Cluster.JoinAddr = addr
+				_ = saveConfig(cfg)
+				log.Info("mDNS 发现引导节点", "node", svc.NodeID, "addr", addr, "role", svc.Role)
 			}
 			n, err := mgr.Join(addr)
 			if err != nil {

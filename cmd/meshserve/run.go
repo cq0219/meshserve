@@ -11,8 +11,10 @@ import (
 	"github.com/yourorg/meshserve/internal/agent"
 	"github.com/yourorg/meshserve/internal/cluster"
 	"github.com/yourorg/meshserve/internal/config"
+	"github.com/yourorg/meshserve/internal/console"
 	"github.com/yourorg/meshserve/internal/gateway"
 	"github.com/yourorg/meshserve/internal/health"
+	"github.com/yourorg/meshserve/internal/mdns"
 	"github.com/yourorg/meshserve/internal/modelrepo"
 	"github.com/yourorg/meshserve/internal/observ"
 	"github.com/yourorg/meshserve/internal/raftstore"
@@ -73,6 +75,14 @@ func newRunCmd() *cobra.Command {
 			defer func() { _ = mgr.Shutdown() }()
 			log.Info("成员管理已启动", "node", nodeID, "bind", fmt.Sprintf("%s:%d", cfg.Cluster.BindAddr, cfg.Cluster.BindPort))
 
+			// 2.1 mDNS 广播：局域网内新节点可自动发现本节点
+			stopMDNS, err := mdns.Register(ctx, nodeID, nodeID, "bootstrap", cfg.Cluster.BindPort, log)
+			if err != nil {
+				log.Warn("mDNS 广播失败（不影响运行，可手动 join）", "err", err)
+			} else {
+				defer stopMDNS()
+			}
+
 			// 3. 模型仓库 + 节点代理
 			repo, err := modelrepo.New(store, cfg.ModelsDir, log)
 			if err != nil {
@@ -113,9 +123,24 @@ func newRunCmd() *cobra.Command {
 				}
 			}()
 
-			// 7. HTTP 服务：网关 + 探针
+			// 7. HTTP 服务：网关 + 控制台（含指标端点）+ 探针
 			mux := http.NewServeMux()
 			mux.Handle("/", gw.Handler())
+
+			// 7.1 Web 控制台（M2 交付：REST API + 内嵌前端）
+			consoleHandler, err := console.Handler(store, mgr, repo, ag)
+			if err != nil {
+				return fmt.Errorf("初始化控制台失败: %w", err)
+			}
+			// 控制台挂载到独立端口（避免与 OpenAI 网关路径冲突）
+			cs := &http.Server{Addr: cfg.Console.HTTPAddr, Handler: consoleHandler}
+			go func() {
+				log.Info("Web 控制台启动", "addr", cfg.Console.HTTPAddr, "url", "http://"+cfg.Console.HTTPAddr)
+				if err := cs.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					log.Error("控制台退出", "err", err)
+				}
+			}()
+
 			sh := &http.Server{Addr: cfg.Gateway.HTTPAddr, Handler: mux}
 			ph := &http.Server{Addr: cfg.Agent.RPCAddr, Handler: hs.Handler()}
 			go func() {
@@ -137,6 +162,7 @@ func newRunCmd() *cobra.Command {
 			defer cancel()
 			_ = sh.Shutdown(shutdownCtx)
 			_ = ph.Shutdown(shutdownCtx)
+			_ = cs.Shutdown(shutdownCtx)
 			return nil
 		},
 	}

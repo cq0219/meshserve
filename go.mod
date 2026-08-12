@@ -3,6 +3,7 @@ module github.com/yourorg/meshserve
 go 1.25.0
 
 require (
+	github.com/grandcat/zeroconf v1.0.0
 	github.com/hashicorp/memberlist v0.6.0
 	github.com/spf13/cobra v1.10.2
 	go.etcd.io/bbolt v1.5.0
@@ -11,6 +12,7 @@ require (
 
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect
+	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
