@@ -18,7 +18,7 @@ on:
   workflow_dispatch: {}
 
 env:
-  GO_VERSION: "1.23"
+  GO_VERSION: "1.25"
   GOPROXY: https://goproxy.cn,direct
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.61.0
+          version: v2.1.2
           args: --timeout=5m --enable=errcheck,govet,ineffassign,staticcheck,unused,gosimple
 
       - name: 漏洞扫描
@@ -63,12 +63,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: 单元测试（race + 覆盖率）
-        run: go test -race -count=1 -cover ./...
+      - name: 单元测试（race）
+        run: go test -race -count=1 ./...
 
-      - name: 覆盖率门禁（整体 ≥ 50%）
+      - name: 覆盖率统计（不含 race，规避 covdata 缺陷）
         run: |
-          # 逐包输出覆盖率并计算整体均值（避免无测试包触发 covdata 合并错误）
           COV=$(go test -count=1 -cover ./internal/... 2>/dev/null | awk -F'coverage: ' '/coverage:/{split($2,a,"%"); s+=a[1]; n++} END {if(n>0) printf "%.1f", s/n; else print "0"}')
           echo "整体覆盖率: ${COV}%"
           if [ -z "$COV" ] || [ "${COV%.*}" -lt 50 ]; then
