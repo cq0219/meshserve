@@ -141,7 +141,7 @@ func newTestStore(t *testing.T) (*Store, func()) {
 	if err != nil {
 		t.Fatalf("Open 失败: %v", err)
 	}
-	return s, func() { s.Close() }
+	return s, func() { _ = s.Close() }
 }
 
 func mustMarshal(m *Model) []byte {

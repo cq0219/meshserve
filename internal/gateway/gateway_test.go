@@ -27,7 +27,7 @@ func testGateway(t *testing.T) (*Gateway, *LocalRouter) {
 	if err != nil {
 		t.Fatalf("打开存储失败: %v", err)
 	}
-	t.Cleanup(func() { store.Close() })
+	t.Cleanup(func() { _ = store.Close() })
 	repo, err := modelrepo.New(store, filepath.Join(dir, "models"), log)
 	if err != nil {
 		t.Fatalf("创建模型仓库失败: %v", err)
@@ -151,7 +151,7 @@ func TestRateLimit(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	dir := t.TempDir()
 	store, _ := raftstore.Open(dir)
-	t.Cleanup(func() { store.Close() })
+	t.Cleanup(func() { _ = store.Close() })
 	repo, _ := modelrepo.New(store, dir, log)
 	router := NewLocalRouter(repo)
 	gw := New(router, NewTokenBucket(2), log) // 每秒 2 个
@@ -177,7 +177,7 @@ func TestRecover_Panic(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	dir := t.TempDir()
 	store, _ := raftstore.Open(dir)
-	t.Cleanup(func() { store.Close() })
+	t.Cleanup(func() { _ = store.Close() })
 	repo, _ := modelrepo.New(store, dir, log)
 	router := NewLocalRouter(repo)
 	gw := New(router, nil, log)

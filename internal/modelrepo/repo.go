@@ -135,8 +135,8 @@ func dirChecksum(dir string) string {
 		if err != nil {
 			return nil
 		}
-		defer f.Close()
-		io.Copy(h, f)
+		defer func() { _ = f.Close() }()
+		_, _ = io.Copy(h, f)
 		return nil
 	})
 	return hex.EncodeToString(h.Sum(nil))

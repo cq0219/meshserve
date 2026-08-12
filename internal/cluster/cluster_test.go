@@ -21,7 +21,7 @@ func TestNewAndSelf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)
 	}
-	defer m.Shutdown()
+	defer func() { _ = m.Shutdown() }()
 	if m.Self().ID != "test-node" {
 		t.Errorf("Self ID 错误: %s", m.Self().ID)
 	}
@@ -36,7 +36,7 @@ func TestTwoNodesJoin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("A 创建失败: %v", err)
 	}
-	defer a.Shutdown()
+	defer func() { _ = a.Shutdown() }()
 
 	b, err := New(context.Background(), Options{
 		NodeID:    "node-b",
@@ -50,7 +50,7 @@ func TestTwoNodesJoin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("B 创建失败: %v", err)
 	}
-	defer b.Shutdown()
+	defer func() { _ = b.Shutdown() }()
 
 	// 等待 gossip 收敛
 	deadline := time.Now().Add(5 * time.Second)
@@ -82,7 +82,7 @@ func TestJoinEvent(t *testing.T) {
 		NodeID: "node-a", Role: "bootstrap", BindAddr: "127.0.0.1", BindPort: 0,
 		EnableTLS: false, Logger: testLogger(),
 	})
-	defer a.Shutdown()
+	defer func() { _ = a.Shutdown() }()
 	events := a.Subscribe()
 
 	_, err := New(context.Background(), Options{
@@ -118,7 +118,7 @@ func TestMembers_SelfIncluded(t *testing.T) {
 		NodeID: "solo", Role: "bootstrap", BindAddr: "127.0.0.1", BindPort: 0,
 		EnableTLS: false, Logger: testLogger(),
 	})
-	defer m.Shutdown()
+	defer func() { _ = m.Shutdown() }()
 	time.Sleep(300 * time.Millisecond) // 等待本地节点注册
 	found := false
 	for _, mm := range m.Members() {

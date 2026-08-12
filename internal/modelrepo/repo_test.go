@@ -22,7 +22,7 @@ func newTestRepo(t *testing.T) (*Repo, func()) {
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)
 	}
-	return repo, func() { store.Close() }
+	return repo, func() { _ = store.Close() }
 }
 
 // TestRegisterLocal 注册本地模型目录。
@@ -83,8 +83,8 @@ func TestListDelete(t *testing.T) {
 	defer cleanup()
 	d := filepath.Join(t.TempDir(), "m")
 	os.MkdirAll(d, 0o755)
-	repo.RegisterLocal(context.Background(), "m1", d, "fake", "fp16", 1)
-	repo.RegisterLocal(context.Background(), "m2", d, "fake", "fp16", 1)
+	_, _ = repo.RegisterLocal(context.Background(), "m1", d, "fake", "fp16", 1)
+	_, _ = repo.RegisterLocal(context.Background(), "m2", d, "fake", "fp16", 1)
 
 	list, err := repo.List(context.Background())
 	if err != nil || len(list) != 2 {

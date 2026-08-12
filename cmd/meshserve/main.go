@@ -17,7 +17,6 @@ import (
 	"github.com/yourorg/meshserve/internal/cluster"
 	"github.com/yourorg/meshserve/internal/config"
 	"github.com/yourorg/meshserve/internal/observ"
-	"github.com/yourorg/meshserve/internal/raftstore"
 	"github.com/yourorg/meshserve/internal/version"
 )
 
@@ -113,12 +112,6 @@ func signalContext() context.Context {
 		cancel()
 	}()
 	return ctx
-}
-
-// openStore 打开 raftstore（并更新日志级别）。
-func openStore(cfg *config.Config) (*raftstore.Store, error) {
-	log = observ.NewLogger(cfg.Log.Level, cfg.Log.JSON)
-	return raftstore.Open(cfg.DataDir)
 }
 
 // startCluster 启动成员管理器（含 join 逻辑）。

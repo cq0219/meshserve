@@ -16,3 +16,9 @@
 # 系统
 .DS_Store
 Thumbs.db
+
+# CI 调试临时文件
+build/
+*.log
+jobs*.json
+push_files.json

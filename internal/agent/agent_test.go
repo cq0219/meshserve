@@ -17,7 +17,7 @@ func newTestAgent(t *testing.T) *Agent {
 	dir := t.TempDir()
 	cfg := config.Default()
 	cfg.ModelsDir = filepath.Join(dir, "models")
-	os.MkdirAll(cfg.ModelsDir, 0o755)
+	_ = os.MkdirAll(cfg.ModelsDir, 0o755)
 	return New(cfg, log)
 }
 
@@ -56,8 +56,8 @@ func TestDeployAndStop(t *testing.T) {
 func TestListInstances(t *testing.T) {
 	a := newTestAgent(t)
 	ctx := context.Background()
-	a.DeployInstance(ctx, "inst-a", "ma", "/m/ma", "fake", 0)
-	a.DeployInstance(ctx, "inst-b", "mb", "/m/mb", "fake", 0)
+	_, _ = a.DeployInstance(ctx, "inst-a", "ma", "/m/ma", "fake", 0)
+	_, _ = a.DeployInstance(ctx, "inst-b", "mb", "/m/mb", "fake", 0)
 
 	list := a.ListInstances()
 	if len(list) != 2 {
@@ -70,7 +70,7 @@ func TestHealthCheckSelfHeal(t *testing.T) {
 	a := newTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	a.DeployInstance(ctx, "inst-ok", "m", "/m/m", "fake", 0)
+	_, _ = a.DeployInstance(ctx, "inst-ok", "m", "/m/m", "fake", 0)
 	a.HealthCheck(ctx)
 	list := a.ListInstances()
 	if len(list) != 1 || list[0].State != InstReady {

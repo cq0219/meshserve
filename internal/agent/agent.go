@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -77,9 +76,6 @@ func New(cfg *config.Config, log *slog.Logger) *Agent {
 
 // CollectGPU 采集 GPU 信息（nvidia-smi；不可用时返回空列表 + 错误）。
 func CollectGPU() ([]GPUInfo, error) {
-	if runtime.GOOS == "windows" {
-		// Windows 环境 nvidia-smi 同样可用
-	}
 	out, err := exec.Command("nvidia-smi", "--query-gpu=name,memory.total,memory.used,utilization.gpu", "--format=csv,noheader,nounits").Output()
 	if err != nil {
 		return nil, errors.New("nvidia-smi 不可用（无 NVIDIA GPU 或驱动未安装）")
@@ -91,9 +87,10 @@ func CollectGPU() ([]GPUInfo, error) {
 			continue
 		}
 		g := GPUInfo{Name: strings.TrimSpace(parts[0])}
-		fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &g.VRAMTotal)
-		fmt.Sscanf(strings.TrimSpace(parts[2]), "%d", &g.VRAMUsed)
-		fmt.Sscanf(strings.TrimSpace(parts[3]), "%d", &g.UtilPct)
+		// 解析失败保持零值，不中断采集
+		_, _ = fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &g.VRAMTotal)
+		_, _ = fmt.Sscanf(strings.TrimSpace(parts[2]), "%d", &g.VRAMUsed)
+		_, _ = fmt.Sscanf(strings.TrimSpace(parts[3]), "%d", &g.UtilPct)
 		g.VRAMTotal *= 1024 * 1024 // MiB → bytes
 		g.VRAMUsed *= 1024 * 1024
 		gpus = append(gpus, g)

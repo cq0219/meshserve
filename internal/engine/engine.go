@@ -4,8 +4,7 @@ package engine
 
 import (
 	"context"
-	"io"
-)
+	)
 
 // ChatMessage 对话消息（OpenAI 兼容）。
 type ChatMessage struct {
@@ -94,9 +93,4 @@ func Registered() []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-// drainClose 安全关闭流。
-func drainClose(w io.WriteCloser) {
-	_ = w.Close()
 }

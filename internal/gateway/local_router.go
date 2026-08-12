@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -51,7 +52,7 @@ func (r *LocalRouter) Resolve(model string) ([]engine.Engine, error) {
 	engines := r.engines[model]
 	if len(engines) == 0 {
 		// 模型已注册但未部署副本
-		if _, err := r.repo.Get(nil, model); err == nil {
+		if _, err := r.repo.Get(context.TODO(), model); err == nil {
 			return nil, fmt.Errorf("模型 %q 已注册但未部署实例，请先执行 model deploy", model)
 		}
 		return nil, fmt.Errorf("模型 %q 不存在", model)

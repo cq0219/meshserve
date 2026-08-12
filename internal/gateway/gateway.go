@@ -151,7 +151,7 @@ func (g *Gateway) streamChat(w http.ResponseWriter, ctx context.Context, eng eng
 			"id": c.ID, "object": "chat.completion.chunk", "model": c.Model,
 			"choices": []map[string]any{{"index": 0, "delta": map[string]string{"content": c.Content}, "finish_reason": nil}},
 		})
-		fmt.Fprintf(w, "data: %s\n\n", payload)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
 		flusher.Flush()
 		return nil
 	}
@@ -162,7 +162,7 @@ func (g *Gateway) streamChat(w http.ResponseWriter, ctx context.Context, eng eng
 		g.stats.Errors++
 		g.mu.Unlock()
 	}
-	fmt.Fprint(w, "data: [DONE]\n\n")
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }
 

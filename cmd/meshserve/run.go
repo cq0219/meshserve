@@ -33,7 +33,9 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cfg.Validate()
+			if err := cfg.Validate(); err != nil {
+				return err
+			}
 			if gatewayAddr != "" {
 				cfg.Gateway.HTTPAddr = gatewayAddr
 			}
@@ -49,7 +51,7 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer store.Close()
+			defer func() { _ = store.Close() }()
 
 			// 2. 成员管理
 			nodeID, err := ensureNodeID(cfg.DataDir)
@@ -68,7 +70,7 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("启动成员管理失败: %w", err)
 			}
-			defer mgr.Shutdown()
+			defer func() { _ = mgr.Shutdown() }()
 			log.Info("成员管理已启动", "node", nodeID, "bind", fmt.Sprintf("%s:%d", cfg.Cluster.BindAddr, cfg.Cluster.BindPort))
 
 			// 3. 模型仓库 + 节点代理

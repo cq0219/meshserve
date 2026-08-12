@@ -117,7 +117,7 @@ func newJoinCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer mgr.Shutdown()
+			defer func() { _ = mgr.Shutdown() }()
 
 			if addr == "" {
 				// 未指定地址：尝试自动发现（mDNS 由 meshserve run 的 agent 提供；

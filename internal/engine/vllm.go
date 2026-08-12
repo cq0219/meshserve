@@ -55,8 +55,8 @@ func (e *VLLMEngine) waitReady(ctx context.Context, timeout time.Duration) error
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		resp, err := e.client.Do(req)
 		if err == nil {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}
@@ -80,8 +80,8 @@ func (e *VLLMEngine) Health(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("引擎健康检查失败: %w", err)
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("引擎健康检查返回 %d", resp.StatusCode)
 	}
@@ -117,7 +117,7 @@ func (e *VLLMEngine) Chat(ctx context.Context, req ChatRequest, chunkFn func(Cha
 	if err != nil {
 		return nil, fmt.Errorf("调用 vLLM 失败: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return nil, fmt.Errorf("vLLM 返回 %d: %s", resp.StatusCode, string(b))

@@ -72,8 +72,5 @@ func (h *eventHandler) NotifyUpdate(n *memberlist.Node) {
 	}})
 }
 
-// jsonUnmarshal / jsonMarshal 便于测试时替换。
-var (
-	jsonUnmarshal = json.Unmarshal
-	jsonMarshal   = json.Marshal
-)
+// jsonUnmarshal 便于测试时替换。
+var jsonUnmarshal = json.Unmarshal

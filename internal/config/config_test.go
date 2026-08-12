@@ -56,7 +56,7 @@ func TestLoad_MissingFile(t *testing.T) {
 func TestLoad_InvalidFile(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "bad.yaml")
 	// YAML 非法：tab 缩进 + 重复 key 冲突
-	os.WriteFile(p, []byte("node_id: [unclosed\n  bad_indent: \tvalue\n"), 0o644)
+	_ = os.WriteFile(p, []byte("node_id: [unclosed\n  bad_indent: \tvalue\n"), 0o644)
 	if _, err := Load(p); err == nil {
 		t.Error("非法 YAML 应报错")
 	}
@@ -66,7 +66,7 @@ func TestLoad_InvalidFile(t *testing.T) {
 func TestLoad_ValidFile(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "ok.yaml")
 	content := "node_id: node-x\ncluster_name: test\nlog:\n  level: debug\n  json: true\ngateway:\n  http_addr: 0.0.0.0:9999\n"
-	os.WriteFile(p, []byte(content), 0o644)
+	_ = os.WriteFile(p, []byte(content), 0o644)
 	c, err := Load(p)
 	if err != nil {
 		t.Fatalf("Load 失败: %v", err)
@@ -97,7 +97,7 @@ func TestMarshalRoundTrip(t *testing.T) {
 	_ = got
 	// 解析序列化产物
 	p := filepath.Join(t.TempDir(), "rt.yaml")
-	os.WriteFile(p, data, 0o644)
+	_ = os.WriteFile(p, data, 0o644)
 	loaded, err := Load(p)
 	if err != nil {
 		t.Fatalf("回环加载失败: %v", err)
