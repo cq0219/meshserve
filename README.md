@@ -1,5 +1,7 @@
 # MeshServe
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 本地多机大语言模型推理集群系统 —— 自动发现组网、免 Kubernetes、一键部署。
 
 对应文档：《MeshServe 模型服务系统架构设计方案》《MeshServe 落地实现方案》。
@@ -133,4 +135,4 @@ make vet           # go vet
 
 ## 许可证
 
-内部项目，未发布。
+[MIT License](LICENSE) © 2026 cq0219 — 允许自由使用、修改、分发（含商用），需保留版权声明。
