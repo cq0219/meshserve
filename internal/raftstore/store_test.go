@@ -148,3 +148,31 @@ func mustMarshal(m *Model) []byte {
 	b, _ := m.Encode()
 	return b
 }
+
+// TestOpenReadOnly 只读打开：不创建 db；已存在时可按需读取元数据。
+func TestOpenReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	// 1. db 不存在时只读打开应报错（不创建文件）
+	if _, err := OpenReadOnly(dir); err == nil {
+		t.Fatal("db 不存在时只读打开应报错（不创建）")
+	}
+	// 2. 写模式创建并写入元数据
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open 失败: %v", err)
+	}
+	if err := s.SetClusterMeta("cluster-ro", "tok-ro"); err != nil {
+		t.Fatalf("SetClusterMeta 失败: %v", err)
+	}
+	_ = s.Close()
+	// 3. 只读打开可读取集群 ID
+	ro, err := OpenReadOnly(dir)
+	if err != nil {
+		t.Fatalf("OpenReadOnly 失败: %v", err)
+	}
+	defer func() { _ = ro.Close() }()
+	id, err := ro.ClusterID()
+	if err != nil || id != "cluster-ro" {
+		t.Errorf("只读读取集群 ID 失败: id=%q err=%v", id, err)
+	}
+}

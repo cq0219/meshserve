@@ -51,7 +51,7 @@
 
   <div class="panel">
     <h2>节点列表</h2>
-    <table><thead><tr><th>节点 ID</th><th>地址</th><th>角色</th><th>状态</th></tr></thead><tbody id="nodesBody"></tbody></table>
+    <table><thead><tr><th>节点 ID</th><th>地址</th><th>角色</th><th>状态</th><th>GPU 资源</th></tr></thead><tbody id="nodesBody"></tbody></table>
   </div>
 
   <div class="panel">
@@ -61,7 +61,7 @@
 
   <div class="panel">
     <h2>集群实例</h2>
-    <table><thead><tr><th>节点</th><th>实例 ID</th><th>模型</th><th>引擎</th><th>状态</th><th>地址</th></tr></thead><tbody id="instsBody"></tbody></table>
+    <table><thead><tr><th>节点</th><th>实例 ID</th><th>模型</th><th>引擎</th><th>状态</th><th>显存占用</th><th>地址</th></tr></thead><tbody id="instsBody"></tbody></table>
   </div>
 </div>
 
@@ -89,9 +89,13 @@ async function loadAll() {
     nb.innerHTML = '';
     for (const n of nodes) {
       const stateCls = n.state === 'alive' ? 'ok' : (n.state === 'suspect' ? 'warn' : 'bad');
+      const tags = n.tags || {};
+      const gpu = tags.gpu_count > 0
+        ? `${esc(tags.gpu_model)} ×${tags.gpu_count}（${fmtBytes(Number(tags.gpu_vram))}）`
+        : '<span class="muted">无 GPU</span>';
       nb.innerHTML += `<tr><td>${esc(n.id)}</td><td>${esc(n.addr)}:${n.port}</td>` +
         `<td><span class="tag info">${esc(n.role||'member')}</span></td>` +
-        `<td><span class="tag ${stateCls}">${esc(n.state)}</span></td></tr>`;
+        `<td><span class="tag ${stateCls}">${esc(n.state)}</span></td><td>${gpu}</td></tr>`;
     }
 
     const mb = document.getElementById('modelsBody');
@@ -104,12 +108,12 @@ async function loadAll() {
 
     const ib = document.getElementById('instsBody');
     ib.innerHTML = '';
-    if (insts.length === 0) ib.innerHTML = '<tr><td colspan="6" class="muted">暂无实例</td></tr>';
+    if (insts.length === 0) ib.innerHTML = '<tr><td colspan="7" class="muted">暂无实例</td></tr>';
     for (const i of insts) {
       const stateCls = i.state === 'ready' ? 'ok' : (i.state === 'loading' ? 'warn' : 'bad');
       const nodeTag = i.node_id === st.self_node_id ? '本机' : i.node_id;
       ib.innerHTML += `<tr><td>${esc(nodeTag)}</td><td>${esc(i.id)}</td><td>${esc(i.model_name)}</td><td>${esc(i.engine)}</td>` +
-        `<td><span class="tag ${stateCls}">${esc(i.state)}</span></td><td>${esc(i.addr||'—')}</td></tr>`;
+        `<td><span class="tag ${stateCls}">${esc(i.state)}</span></td><td>${fmtBytes(i.vram_used)}</td><td>${esc(i.addr||'—')}</td></tr>`;
     }
   } catch (e) {
     document.getElementById('dot').style.background = '#b91c1c';

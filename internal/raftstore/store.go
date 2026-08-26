@@ -66,6 +66,19 @@ func Open(dataDir string) (*Store, error) {
 	return s, nil
 }
 
+// OpenReadOnly 以只读模式打开数据库（共享锁，可与运行中的 run 进程并发读）。
+// 用于 status 等只读 CLI 命令：避免与持有写锁的 run 进程发生文件锁冲突（此前表现为 timeout）。
+func OpenReadOnly(dataDir string) (*Store, error) {
+	db, err := bolt.Open(filepath.Join(dataDir, "meshserve.db"), 0o600,
+		&bolt.Options{ReadOnly: true, Timeout: 2 * time.Second})
+	if err != nil {
+		return nil, fmt.Errorf("打开数据库失败（只读）: %w", err)
+	}
+	s := &Store{db: db, wat: make([]*watcher, 0)}
+	s.reloadLeader()
+	return s, nil
+}
+
 // Close 关闭存储。
 func (s *Store) Close() error { return s.db.Close() }
 

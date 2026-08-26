@@ -1,13 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/yourorg/meshserve/internal/agent"
 	"github.com/yourorg/meshserve/internal/config"
 	"github.com/yourorg/meshserve/internal/raftstore"
 )
@@ -188,12 +190,18 @@ func newStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			store, err := raftstore.Open(cfg.DataDir)
+			// 优先走 HTTP 控制台（run 进程运行时，避免 bbolt 文件锁冲突导致的 timeout）
+			if st, insts, ok := fetchConsoleStatus(cfg.Console.HTTPAddr); ok {
+				printConsoleStatus(st, insts)
+				return nil
+			}
+			// 回退：只读打开本地库（run 未运行，无锁冲突；不创建 db）
+			store, err := raftstore.OpenReadOnly(cfg.DataDir)
 			if err != nil {
 				return err
 			}
 			defer func() { _ = store.Close() }()
-			fmt.Println("=== MeshServe 集群状态 ===")
+			fmt.Println("=== MeshServe 集群状态（本地元数据；run 未运行）===")
 			if id, err := store.ClusterID(); err == nil {
 				fmt.Printf("集群 ID:   %s\n", id)
 			}
@@ -202,17 +210,69 @@ func newStatusCmd() *cobra.Command {
 			fmt.Printf("数据目录:  %s\n", cfg.DataDir)
 			fmt.Printf("网关地址:  %s\n", cfg.Gateway.HTTPAddr)
 			fmt.Printf("推理引擎:  %s\n", cfg.Agent.Engine)
-			// 本机实例状态
-			ag := agent.New(cfg, log)
-			insts := ag.ListInstances()
-			if len(insts) > 0 {
-				fmt.Println("--- 本机实例 ---")
-				for _, i := range insts {
-					fmt.Printf("  %-28s %s state=%s\n", i.ID, i.ModelName, i.State)
-				}
-			}
+			fmt.Println("提示: 运行 `meshserve run` 后执行 status 可查看在线实例与节点状态")
 			return nil
 		},
+	}
+}
+
+// consoleStatus 控制台 /api/status 响应结构。
+type consoleStatus struct {
+	ClusterID  string `json:"cluster_id"`
+	NodeCount  int    `json:"node_count"`
+	NodeOnline int    `json:"node_online"`
+	Leader     string `json:"leader"`
+	SelfNodeID string `json:"self_node_id"`
+}
+
+// instView 控制台实例视图（含所属节点）。
+type instView struct {
+	ID        string `json:"id"`
+	ModelName string `json:"model_name"`
+	State     string `json:"state"`
+	NodeID    string `json:"node_id"`
+	VRAMUsed  uint64 `json:"vram_used"`
+}
+
+// fetchConsoleStatus 通过控制台 API 获取集群状态与实例（控制台不可达时返回 ok=false）。
+func fetchConsoleStatus(consoleAddr string) (*consoleStatus, []instView, bool) {
+	if consoleAddr == "" {
+		return nil, nil, false
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://" + consoleAddr + "/api/status")
+	if err != nil {
+		return nil, nil, false
+	}
+	var st consoleStatus
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		_ = resp.Body.Close()
+		return nil, nil, false
+	}
+	_ = resp.Body.Close()
+	// 实例列表（失败不阻塞状态展示）
+	var insts []instView
+	if r2, err := client.Get("http://" + consoleAddr + "/api/instances"); err == nil {
+		_ = json.NewDecoder(r2.Body).Decode(&insts)
+		_ = r2.Body.Close()
+	}
+	return &st, insts, true
+}
+
+// printConsoleStatus 打印控制台聚合的集群状态。
+func printConsoleStatus(st *consoleStatus, insts []instView) {
+	fmt.Println("=== MeshServe 集群状态（在线）===")
+	fmt.Printf("集群 ID:   %s\n", st.ClusterID)
+	fmt.Printf("Leader:    %s\n", st.Leader)
+	fmt.Printf("节点:      %d 个（在线 %d）\n", st.NodeCount, st.NodeOnline)
+	fmt.Printf("本机节点:  %s\n", st.SelfNodeID)
+	if len(insts) > 0 {
+		fmt.Println("--- 集群实例 ---")
+		for _, i := range insts {
+			fmt.Printf("  %-28s %-20s node=%s state=%s vram=%d\n", i.ID, i.ModelName, i.NodeID, i.State, i.VRAMUsed)
+		}
+	} else {
+		fmt.Println("（暂无运行实例）")
 	}
 }
 

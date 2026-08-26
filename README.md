@@ -124,6 +124,14 @@ internal/observ          结构化日志
 | **CI 结果** | 6/6 jobs 全绿（Lint / Unit / Cross-Compile ×3 / E2E） |
 | **备注** | 修复 M3 遗留：agent.Instance.StartedAt 恢复 json tag |
 
+### Bugfix — status 超时 + GPU 资源显示（2026-08-26）
+
+| 类别 | 内容 |
+|------|------|
+| **Bug 修复** | ① `meshserve status` 超时：根因是 `raftstore.Open` 的 bbolt 独占文件锁与运行中 `run` 进程冲突（等待 2s 后 timeout）。修复：status 优先走本机控制台 HTTP API（在线全量状态），回退只读打开本地库（`OpenReadOnly`，不创建 db、run 未运行时不冲突）。② 集群实例无 GPU 资源：节点启动时采集 GPU（型号/数量/总显存）写入 gossip 标签；控制台节点表新增「GPU 资源」列、实例表新增「显存占用」列 |
+| **测试数据** | 新增 raftstore OpenReadOnly 用例（不存在报错 / 可读元数据）；raftstore/console/agent/cluster 回归全绿 |
+| **本地 E2E 验证** | status 1.5s 返回在线状态（此前 2s 超时报错）；节点 API 返回 gpu_model/gpu_count/gpu_vram 标签；实例 API 返回 vram_used |
+
 ## 测试
 
 ```bash

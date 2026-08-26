@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -29,6 +30,26 @@ func portOf(addr string) string {
 		return ""
 	}
 	return port
+}
+
+// gpuTags 采集本机 GPU 摘要（型号/数量/总显存），供节点标签广播。
+// 无 NVIDIA GPU 或 nvidia-smi 不可用时返回占位（不阻断启动）。
+func gpuTags() map[string]string {
+	gpus, err := agent.CollectGPU()
+	if err != nil || len(gpus) == 0 {
+		return map[string]string{"gpu_model": "无", "gpu_count": "0", "gpu_vram": "0"}
+	}
+	models := make([]string, 0, len(gpus))
+	var total uint64
+	for _, g := range gpus {
+		models = append(models, g.Name)
+		total += g.VRAMTotal
+	}
+	return map[string]string{
+		"gpu_model": strings.Join(models, ", "),
+		"gpu_count": fmt.Sprintf("%d", len(gpus)),
+		"gpu_vram":  fmt.Sprintf("%d", total),
+	}
 }
 
 // newRunCmd 启动节点（Node Agent + 网关 + 健康探针）。
@@ -70,6 +91,7 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			gt := gpuTags() // 采集本机 GPU 摘要
 			mgr, err := cluster.New(ctx, cluster.Options{
 				NodeID:    nodeID,
 				Role:      "member",
@@ -77,10 +99,13 @@ func newRunCmd() *cobra.Command {
 				BindPort:  cfg.Cluster.BindPort,
 				JoinAddr:  cfg.Cluster.JoinAddr,
 				EnableTLS: cfg.Cluster.EnableTLS,
-				// 服务端口标签：随 NodeMeta gossip 扩散，供控制台跨节点聚合实例视图（M4）
+				// 节点标签：服务端口 + GPU 资源，随 NodeMeta gossip 扩散（控制台展示/调度感知）
 				Tags: map[string]string{
 					"console_port": portOf(cfg.Console.HTTPAddr),
 					"gateway_port": portOf(cfg.Gateway.HTTPAddr),
+					"gpu_model":    gt["gpu_model"],
+					"gpu_count":    gt["gpu_count"],
+					"gpu_vram":     gt["gpu_vram"],
 				},
 				Logger: log,
 			})
