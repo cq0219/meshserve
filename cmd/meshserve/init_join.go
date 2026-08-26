@@ -12,7 +12,7 @@ import (
 	"github.com/yourorg/meshserve/internal/config"
 	"github.com/yourorg/meshserve/internal/mdns"
 	"github.com/yourorg/meshserve/internal/raftstore"
-	bolt "go.etcd.io/bbolt"
+	berrors "go.etcd.io/bbolt/errors"
 )
 
 // newInitCmd 初始化集群：生成集群 ID、加入令牌、节点 ID，并持久化配置。
@@ -39,7 +39,7 @@ func newInitCmd() *cobra.Command {
 			// 打开存储并写入集群元数据
 			store, err := raftstore.Open(cfg.DataDir)
 			if err != nil {
-				if errors.Is(err, bolt.ErrTimeout) {
+				if errors.Is(err, berrors.ErrTimeout) {
 					return fmt.Errorf("数据目录 %s 被运行中的节点占用：请先停止 meshserve run 再执行 init", cfg.DataDir)
 				}
 				return err
