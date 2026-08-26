@@ -31,6 +31,15 @@
   .refresh { background: var(--accent); color: #fff; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .refresh:hover { opacity: 0.9; }
   .muted { color: var(--muted); font-size: 12px; }
+  /* GPU 监控面板 */
+  .gpu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .gpu-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: #fafbfd; }
+  .gpu-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .gpu-head b { font-size: 13px; color: var(--primary); }
+  .gpu-head span { font-size: 12px; color: var(--muted); }
+  .bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
+  .bar > div { height: 100%; border-radius: 4px; transition: width .5s; }
+  .gpu-sub { font-size: 12px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -51,7 +60,12 @@
 
   <div class="panel">
     <h2>节点列表</h2>
-    <table><thead><tr><th>节点 ID</th><th>地址</th><th>角色</th><th>状态</th><th>GPU 资源</th></tr></thead><tbody id="nodesBody"></tbody></table>
+    <table><thead><tr><th>节点 ID</th><th>地址</th><th>角色</th><th>状态</th><th>GPU 数量</th></tr></thead><tbody id="nodesBody"></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>GPU 监控 <span class="muted" id="gpuTs">（每 5 秒刷新）</span></h2>
+    <div class="gpu-grid" id="gpuBody"></div>
   </div>
 
   <div class="panel">
@@ -91,7 +105,7 @@ async function loadAll() {
       const stateCls = n.state === 'alive' ? 'ok' : (n.state === 'suspect' ? 'warn' : 'bad');
       const tags = n.tags || {};
       const gpu = tags.gpu_count > 0
-        ? `${esc(tags.gpu_model)} ×${tags.gpu_count}（${fmtBytes(Number(tags.gpu_vram))}）`
+        ? `${tags.gpu_count} 卡<span class="muted" style="display:block">${esc(tags.gpu_model)}</span>`
         : '<span class="muted">无 GPU</span>';
       nb.innerHTML += `<tr><td>${esc(n.id)}</td><td>${esc(n.addr)}:${n.port}</td>` +
         `<td><span class="tag info">${esc(n.role||'member')}</span></td>` +
@@ -129,8 +143,36 @@ function fmtBytes(b) {
 }
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// GPU 实时监控：占用率 + 显存容量（每张卡），5 秒轮询
+async function loadGPU() {
+  try {
+    const gpus = await getJSON('/api/gpu');
+    const el = document.getElementById('gpuBody');
+    const ts = document.getElementById('gpuTs');
+    if (!gpus || gpus.length === 0) {
+      el.innerHTML = '<span class="muted">无 NVIDIA GPU（nvidia-smi 不可用）</span>';
+      ts.textContent = '';
+      return;
+    }
+    ts.textContent = '更新于 ' + new Date().toLocaleTimeString();
+    el.innerHTML = gpus.map(g => {
+      const pct = Math.max(0, Math.min(100, g.util_pct || 0));
+      const used = fmtBytes(g.vram_used), total = fmtBytes(g.vram_total);
+      const free = fmtBytes((g.vram_total || 0) - (g.vram_used || 0));
+      const barColor = pct > 90 ? '#b91c1c' : (pct > 60 ? 'var(--accent)' : 'var(--ok)');
+      return `<div class="gpu-card">
+        <div class="gpu-head"><b>${esc(g.name)}</b><span>利用率 ${pct}%</span></div>
+        <div class="bar"><div style="width:${pct}%;background:${barColor}"></div></div>
+        <div class="gpu-sub">已用 ${used} · 可用 ${free} · 总 ${total}</div>
+      </div>`;
+    }).join('');
+  } catch (e) { /* 轮询失败静默，下次重试 */ }
+}
+
 loadAll();
 setInterval(loadAll, 10000);
+loadGPU();
+setInterval(loadGPU, 5000);
 </script>
 </body>
 </html>

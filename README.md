@@ -136,6 +136,14 @@ internal/observ          结构化日志
 | **测试数据** | 新增 raftstore OpenReadOnly 用例（不存在报错 / 可读元数据）；raftstore/console/agent/cluster 回归全绿 |
 | **本地 E2E 验证** | status 1.5s 返回在线状态（此前 2s 超时报错）；节点 API 返回 gpu_model/gpu_count/gpu_vram 标签；实例 API 返回 vram_used |
 
+### M4-2 — GPU 实时监控（2026-08-26）
+
+| 类别 | 内容 |
+|------|------|
+| **新增功能** | console 新增 `/api/gpu` 实时采集端点（每张卡型号/总显存/已用显存/利用率，nvidia-smi 不可用返回空数组）；前端新增「GPU 监控」面板（利用率进度条 + 已用/可用/总显存，5 秒轮询）；节点表 GPU 列改为「N 卡 + 型号」简洁形式 |
+| **测试数据** | 新增 console 2 用例：无 GPU 空数组 / fake 注入数据字段校验（util_pct/vram_total/vram_used）；console/agent/raftstore 回归全绿 |
+| **本地 E2E 验证** | `/api/gpu` 返回 `[]`（无 GPU 正确降级）；首页含 GPU 监控面板与轮询逻辑 |
+
 ## 测试
 
 ```bash

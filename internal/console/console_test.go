@@ -137,6 +137,45 @@ func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(s) > 0 && indexOf(s, sub) >= 0)
 }
 
+// TestGPUAPI_Empty 无 GPU 环境返回空数组（200）。
+func TestGPUAPI_Empty(t *testing.T) {
+	h := testHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际 %d", w.Code)
+	}
+	if body := w.Body.String(); body != "[]\n" {
+		t.Errorf("无 GPU 应返回空数组: %q", body)
+	}
+}
+
+// TestGPUAPI_WithData 注入 fake GPU 数据：校验占用率与显存容量字段。
+func TestGPUAPI_WithData(t *testing.T) {
+	h := gpuHandler(func() ([]agent.GPUInfo, error) {
+		return []agent.GPUInfo{
+			{Name: "NVIDIA RTX 4090", VRAMTotal: 24 << 30, VRAMUsed: 18 << 30, UtilPct: 75},
+			{Name: "NVIDIA RTX 4090", VRAMTotal: 24 << 30, VRAMUsed: 6 << 30, UtilPct: 12},
+		}, nil
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	body := w.Body.String()
+	for _, want := range []string{
+		`"name":"NVIDIA RTX 4090"`,
+		`"vram_total":25769803776`,
+		`"vram_used":19327352832`,
+		`"util_pct":75`,
+		`"util_pct":12`,
+	} {
+		if !contains(body, want) {
+			t.Errorf("GPU 响应缺少 %s: %s", want, body)
+		}
+	}
+}
+
 // TestInstancesAPI_MultiNode 集群级实例聚合（M4）：本机实例 + 远端节点实例。
 func TestInstancesAPI_MultiNode(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))

@@ -31,6 +31,7 @@ func Handler(store *raftstore.Store, members *cluster.Manager, repo *modelrepo.R
 	mux.HandleFunc("GET /api/nodes", nodesHandler(members))
 	mux.HandleFunc("GET /api/models", modelsHandler(repo))
 	mux.HandleFunc("GET /api/instances", instancesHandler(members, ag))
+	mux.HandleFunc("GET /api/gpu", gpuHandler(agent.CollectGPU))
 
 	// 静态资源（内嵌前端）
 	sub, err := fs.Sub(webFS, "web")
@@ -148,4 +149,18 @@ func hostOf(addr string) string {
 		return addr
 	}
 	return host
+}
+
+// gpuHandler 本机实时 GPU 监控（M4-2）：每张卡的型号、总显存、已用显存、利用率。
+// 每次请求实时执行 nvidia-smi 采集；无 GPU 或采集失败返回空数组（前端显示占位）。
+// collect 可注入以便测试。
+func gpuHandler(collect func() ([]agent.GPUInfo, error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		gpus, err := collect()
+		if err != nil || len(gpus) == 0 {
+			writeJSON(w, http.StatusOK, []any{})
+			return
+		}
+		writeJSON(w, http.StatusOK, gpus)
+	}
 }
