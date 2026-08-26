@@ -32,6 +32,36 @@ func portOf(addr string) string {
 	return port
 }
 
+// autoJoin 未初始化节点自动发现并加入集群（M6，免 token 免地址）：
+// - 本节点已有 cluster_id（已 init）→ 跳过（引导节点）
+// - 已配置 join_addr → 跳过（cluster.New 直接加入）
+// - 未配置且 AutoJoin 开启 → mDNS 发现引导节点（跳过自己），写入 join_addr 并持久化
+func autoJoin(ctx context.Context, cfg *config.Config, store *raftstore.Store, nodeID string, log *slog.Logger) error {
+	if _, err := store.ClusterID(); err == nil {
+		return nil // 本机已初始化（bootstrap），无需自动加入
+	}
+	if cfg.Cluster.JoinAddr != "" {
+		return nil // 已显式配置加入地址
+	}
+	if !cfg.Cluster.AutoJoin {
+		log.Info("auto_join 已关闭，跳过自动发现（可手动执行 meshserve join）")
+		return nil
+	}
+	log.Info("未初始化节点，mDNS 自动发现引导节点…")
+	svcs := mdns.Discover(ctx, 3*time.Second, log)
+	for _, svc := range svcs {
+		if svc.NodeID == nodeID {
+			continue // 跳过自己（本节点也在广播）
+		}
+		cfg.Cluster.JoinAddr = svc.Addr()
+		cfg.Cluster.JoinToken = "" // 免 token 加入（内网信任模型）
+		_ = saveConfig(cfg)
+		log.Info("自动发现引导节点，准备加入", "node", svc.NodeID, "addr", svc.Addr(), "role", svc.Role)
+		return nil
+	}
+	return fmt.Errorf("mDNS 未发现引导节点（请确认引导节点已 init 并运行，或手动执行 meshserve join <地址>）")
+}
+
 // gpuTags 采集本机 GPU 摘要（型号/数量/总显存），供节点标签广播。
 // 无 NVIDIA GPU 或 nvidia-smi 不可用时返回占位（不阻断启动）。
 func gpuTags() map[string]string {
@@ -90,6 +120,10 @@ func newRunCmd() *cobra.Command {
 			nodeID, err := ensureNodeID(cfg.DataDir)
 			if err != nil {
 				return err
+			}
+			// 2.0 自动加入（M6）：未初始化节点通过 mDNS 自动发现引导节点，免 token 免地址
+			if err := autoJoin(ctx, cfg, store, nodeID, log); err != nil {
+				log.Warn("自动加入失败（不影响本机运行，可手动 meshserve join）", "err", err)
 			}
 			gt := gpuTags() // 采集本机 GPU 摘要
 			mgr, err := cluster.New(ctx, cluster.Options{

@@ -33,15 +33,26 @@ curl http://localhost:8080/v1/chat/completions \
 
 ## 双机组网
 
+**方式一：免 token 自动加入（M6，推荐）**——后续机器装好直接 `run`，mDNS 自动发现并加入：
+
 ```bash
-# 机器 A
+# 机器 A（第一台，需先 init 一次）
 meshserve init --name prod
 meshserve run --engine vllm
 
+# 机器 B/C/...（无需 init、无需 join、无需 token，直接 run）
+meshserve run --engine vllm
+```
+
+**方式二：手动 join**（关闭 auto_join 或跨网段时）：
+
+```bash
 # 机器 B
 meshserve join --token <TOKEN> <A的IP>
 meshserve run --engine vllm
 ```
+
+> 安全说明：自动加入基于局域网 mDNS 广播 + 内网信任模型（免 token）。生产环境建议设置 `cluster.auto_join: false` 并配合防火墙/网络隔离，使用手动 join 或 `join_addr` 显式指定。
 
 ## 模型部署
 
@@ -152,6 +163,14 @@ internal/observ          结构化日志
 | **API 新增** | `POST /api/models`、`PATCH /api/models/{name}`、`POST /api/models/{name}/toggle`、`DELETE /api/models/{name}`、`GET /api/models?q=&engine=&status=`（筛选） |
 | **测试数据** | 新增 console 6 用例（注册/端点模式/校验错误/停用启用/删除/筛选）；console/gateway/agent/raftstore/cluster/modelrepo/health 7 包回归全绿 |
 | **本地 E2E 验证** | Web 注册 fake 模型 → online；网关 SSE 流式对话返回内容；/v1/models 含 Web 注册模型；停用→disabled、删除→204 |
+
+### M6 — 免 token 自动加入集群（2026-08-26）
+
+| 类别 | 内容 |
+|------|------|
+| **新增功能** | 新节点装好直接 `run` 自动入网：未初始化节点启动时 mDNS 自动发现引导节点（跳过自己）并加入，免 token 免地址；新增配置 `cluster.auto_join`（默认 true，生产可关）；已初始化（bootstrap）或已配 join_addr 时自动跳过 |
+| **测试数据** | config/console/raftstore 回归全绿 |
+| **本地 E2E 验证** | A init+run；B 直接 run（无 join_addr）→ 日志"自动发现引导节点"→ A 控制台 node_count=2/online=2 |
 
 ## 测试
 

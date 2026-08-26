@@ -52,6 +52,8 @@ type ClusterConfig struct {
 	JoinAddr string `yaml:"join_addr" json:"join_addr"`
 	// JoinToken 加入令牌（init 时生成）
 	JoinToken string `yaml:"join_token" json:"join_token"`
+	// AutoJoin 未初始化时通过 mDNS 自动发现并加入集群（M6，默认 true；生产可关闭配合网络隔离）
+	AutoJoin bool `yaml:"auto_join" json:"auto_join"`
 	// EnableTLS 是否启用节点间 mTLS
 	EnableTLS bool `yaml:"enable_tls" json:"enable_tls"`
 }
@@ -82,6 +84,7 @@ func Default() *Config {
 		Cluster: ClusterConfig{
 			BindAddr:  "0.0.0.0",
 			BindPort:  7946,
+			AutoJoin:  true,
 			EnableTLS: true,
 		},
 		Gateway: GatewayConfig{
