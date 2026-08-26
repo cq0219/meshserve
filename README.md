@@ -144,6 +144,15 @@ internal/observ          结构化日志
 | **测试数据** | 新增 console 2 用例：无 GPU 空数组 / fake 注入数据字段校验（util_pct/vram_total/vram_used）；console/agent/raftstore 回归全绿 |
 | **本地 E2E 验证** | `/api/gpu` 返回 `[]`（无 GPU 正确降级）；首页含 GPU 监控面板与轮询逻辑 |
 
+### M5 — 模型注册与交互界面（2026-08-26）
+
+| 类别 | 内容 |
+|------|------|
+| **新增功能** | **模型管理**：Web 注册表单（名称/引擎/路径或外部端点/量化/参数量/显存/TP/PP/副本）、编辑、停用/启用、删除（二次确认）、搜索 + 引擎/状态筛选、五态状态推导（online/deploying/offline/error/disabled）、部署失败原因展示。**模型对话**：聊天工作台（在线模型选择/搜索、temperature/max_tokens/top_p 参数面板、SSE 流式逐字渲染、耗时与 token 统计、错误提示条、localStorage 会话历史、新建对话）。**网关**：CORS 中间件（控制台跨端口调用）；LocalRouter agent 回退路由（Web 注册/启用模型免手动注册即可对话） |
+| **API 新增** | `POST /api/models`、`PATCH /api/models/{name}`、`POST /api/models/{name}/toggle`、`DELETE /api/models/{name}`、`GET /api/models?q=&engine=&status=`（筛选） |
+| **测试数据** | 新增 console 6 用例（注册/端点模式/校验错误/停用启用/删除/筛选）；console/gateway/agent/raftstore/cluster/modelrepo/health 7 包回归全绿 |
+| **本地 E2E 验证** | Web 注册 fake 模型 → online；网关 SSE 流式对话返回内容；/v1/models 含 Web 注册模型；停用→disabled、删除→204 |
+
 ## 测试
 
 ```bash

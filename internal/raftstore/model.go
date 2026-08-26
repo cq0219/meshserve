@@ -11,24 +11,34 @@ type Model struct {
 	Name string `json:"name"`
 	// Version 模型版本
 	Version string `json:"version"`
-	// Path 模型权重路径（本地目录）
-	Path string `json:"path"`
+	// Path 模型权重路径（本地目录，与 Endpoint 二选一）
+	Path string `json:"path,omitempty"`
+	// Endpoint 外部 OpenAI 兼容 API 地址（与 Path 二选一）
+	Endpoint string `json:"endpoint,omitempty"`
 	// Engine 推荐引擎：vllm|sglang|llamacpp|fake
 	Engine string `json:"engine"`
 	// Quant 量化档位：fp16|bf16|int8|int4
-	Quant string `json:"quant"`
+	Quant string `json:"quant,omitempty"`
 	// VRAMBytes 预估显存需求（含 KV cache 预留），调度器据此放置
-	VRAMBytes uint64 `json:"vram_bytes"`
+	VRAMBytes uint64 `json:"vram_bytes,omitempty"`
+	// Params 参数量（十亿，可选，用于显存估算与展示）
+	Params float64 `json:"params,omitempty"`
 	// TensorParallel 张量并行大小（TP>1 需单节点 GPU 数 ≥ TP，同机多卡）
-	TensorParallel int `json:"tensor_parallel"`
+	TensorParallel int `json:"tensor_parallel,omitempty"`
 	// PipelineParallel 流水线并行大小（PP>1 需跨 PP 个节点，每节点一个 stage）
-	PipelineParallel int `json:"pipeline_parallel"`
+	PipelineParallel int `json:"pipeline_parallel,omitempty"`
 	// Replicas 目标副本数
 	Replicas int `json:"replicas"`
+	// Description 模型描述
+	Description string `json:"description,omitempty"`
+	// Status 运行状态：online|deploying|offline|error|disabled
+	Status string `json:"status,omitempty"`
+	// LastError 最近一次部署/运行错误（展示用）
+	LastError string `json:"last_error,omitempty"`
 	// CreatedAt 创建时间（RFC3339）
-	CreatedAt string `json:"created_at"`
-	// Source 来源：local|huggingface
-	Source string `json:"source"`
+	CreatedAt string `json:"created_at,omitempty"`
+	// Source 来源：local|huggingface|endpoint
+	Source string `json:"source,omitempty"`
 	// SHA256 权重校验和（防损坏）
 	SHA256 string `json:"sha256,omitempty"`
 }
@@ -36,28 +46,48 @@ type Model struct {
 // Encode 序列化为 JSON。
 func (m *Model) Encode() ([]byte, error) { return json.Marshal(m) }
 
-// DecodeModel 解析模型 JSON。
+// DecodeModel 解析模型 JSON（旧记录缺 Status 时默认 offline，向后兼容）。
 func DecodeModel(data []byte) (*Model, error) {
 	m := &Model{}
 	if err := json.Unmarshal(data, m); err != nil {
 		return nil, fmt.Errorf("模型元数据格式错误: %w", err)
 	}
+	if m.Status == "" {
+		m.Status = "offline"
+	}
 	return m, nil
 }
+
+// ModelStatus 运行状态枚举。
+const (
+	StatusOnline    = "online"    // 在线（≥1 实例 ready）
+	StatusDeploying = "deploying" // 部署中（实例 loading）
+	StatusOffline   = "offline"   // 离线（无实例）
+	StatusError     = "error"     // 错误（实例 error）
+	StatusDisabled  = "disabled"  // 已停用（手动停用）
+)
 
 // Validate 校验模型元数据必填字段。
 func (m *Model) Validate() error {
 	if m.Name == "" {
 		return fmt.Errorf("模型 name 不能为空")
 	}
-	if m.Path == "" && m.Source != "huggingface" {
-		return fmt.Errorf("模型 path 不能为空（或指定 source=huggingface）")
+	if m.Path == "" && m.Endpoint == "" {
+		return fmt.Errorf("模型 path 与 endpoint 至少填一个")
 	}
-	if m.VRAMBytes == 0 {
-		return fmt.Errorf("模型 vram_bytes 必须大于 0（调度依赖）")
+	if m.Path == "" && m.Source == "local" {
+		m.Source = "endpoint"
+	}
+	switch m.Engine {
+	case "", "fake", "vllm", "sglang", "llamacpp":
+	default:
+		return fmt.Errorf("非法 engine: %q（可选 fake/vllm/sglang/llamacpp）", m.Engine)
 	}
 	if m.TensorParallel < 0 || m.PipelineParallel < 0 {
 		return fmt.Errorf("分片参数不能为负（tp=%d pp=%d）", m.TensorParallel, m.PipelineParallel)
+	}
+	if m.Replicas == 0 {
+		m.Replicas = 1
 	}
 	return nil
 }

@@ -150,6 +150,7 @@ func newRunCmd() *cobra.Command {
 
 			// 5. 网关（单机路由模式）
 			router := gateway.NewLocalRouter(repo)
+			router.RegisterAgent(ag) // Web 注册/启用的实例动态回退路由（M5）
 			gw := gateway.New(router, gateway.NewTokenBucket(cfg.Gateway.RateLimit), log)
 			registerDeployedModels(ctx, ag, repo, router)
 

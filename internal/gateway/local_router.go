@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/yourorg/meshserve/internal/agent"
 	"github.com/yourorg/meshserve/internal/engine"
 	"github.com/yourorg/meshserve/internal/modelrepo"
 )
@@ -18,11 +19,17 @@ type LocalRouter struct {
 	repo    *modelrepo.Repo
 	engines map[string][]engine.Engine // modelName → 可用引擎
 	load    map[engine.Engine]int64    // engine → 活跃请求数（M3 负载均衡）
+	ag      *agent.Agent               // 可选：Web 注册实例的动态回退路由（M5）
 }
 
 // NewLocalRouter 创建单机路由。
 func NewLocalRouter(repo *modelrepo.Repo) *LocalRouter {
 	return &LocalRouter{repo: repo, engines: make(map[string][]engine.Engine), load: make(map[engine.Engine]int64)}
+}
+
+// RegisterAgent 注入 agent 回退（Web 注册/启用的模型实例无需手动注册即可路由）。
+func (r *LocalRouter) RegisterAgent(ag *agent.Agent) {
+	r.ag = ag
 }
 
 // RegisterEngine 注册模型到引擎映射（agent 部署成功后调用）。
@@ -73,10 +80,20 @@ func (r *LocalRouter) Load(eng engine.Engine) int64 {
 }
 
 // Resolve 返回模型可用的引擎列表，按负载升序（低负载优先，M3 负载均衡）。
+// 静态注册表未命中时，回退查询 agent 的 ready 实例（Web 注册/启用的模型，M5）。
 func (r *LocalRouter) Resolve(model string) ([]engine.Engine, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	engines := r.engines[model]
+	r.mu.RUnlock()
+	if len(engines) == 0 && r.ag != nil {
+		for _, inst := range r.ag.ListInstances() {
+			if inst.ModelName == model && inst.State == agent.InstReady {
+				if eng, ok := r.ag.GetEngine(inst.ID); ok {
+					engines = append(engines, eng)
+				}
+			}
+		}
+	}
 	if len(engines) == 0 {
 		// 模型已注册但未部署副本
 		if _, err := r.repo.Get(context.TODO(), model); err == nil {
@@ -84,6 +101,8 @@ func (r *LocalRouter) Resolve(model string) ([]engine.Engine, error) {
 		}
 		return nil, fmt.Errorf("模型 %q 不存在", model)
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]engine.Engine, len(engines))
 	copy(out, engines)
 	// 稳定排序：负载低者优先（同负载保持注册顺序）
@@ -91,13 +110,23 @@ func (r *LocalRouter) Resolve(model string) ([]engine.Engine, error) {
 	return out, nil
 }
 
-// Models 返回已部署模型的列表。
+// Models 返回已部署模型的列表（含 agent 动态实例，M5）。
 func (r *LocalRouter) Models() ([]string, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	seen := make(map[string]bool)
 	out := make([]string, 0, len(r.engines))
 	for m := range r.engines {
 		out = append(out, m)
+		seen[m] = true
+	}
+	r.mu.RUnlock()
+	if r.ag != nil {
+		for _, inst := range r.ag.ListInstances() {
+			if inst.State == agent.InstReady && !seen[inst.ModelName] {
+				out = append(out, inst.ModelName)
+				seen[inst.ModelName] = true
+			}
+		}
 	}
 	return out, nil
 }

@@ -53,17 +53,71 @@ func (r *Repo) RegisterLocal(ctx context.Context, name, path, engine, quant stri
 		VRAMBytes:      vramBytes,
 		TensorParallel: 1,
 		Replicas:       1,
+		Status:         raftstore.StatusOffline,
 		CreatedAt:      time.Now().Format(time.RFC3339),
 		Source:         "local",
 		SHA256:         dirChecksum(abs),
 	}
+	return r.save(ctx, m)
+}
+
+// RegisterModel 通用注册（Web 控制台用）：支持本地路径或外部端点。
+func (r *Repo) RegisterModel(ctx context.Context, m *raftstore.Model) (*raftstore.Model, error) {
+	if m.Name == "" || (m.Path == "" && m.Endpoint == "") {
+		return nil, fmt.Errorf("name 与 path/endpoint 为必填")
+	}
+	if m.Path != "" {
+		if _, err := os.Stat(m.Path); err != nil {
+			return nil, fmt.Errorf("模型路径不存在: %w", err)
+		}
+		m.Path, _ = filepath.Abs(m.Path)
+		m.Source = "local"
+		m.SHA256 = dirChecksum(m.Path)
+	} else {
+		m.Source = "endpoint"
+	}
+	if m.Version == "" {
+		m.Version = "v1"
+	}
+	if m.Replicas == 0 {
+		m.Replicas = 1
+	}
+	if m.Status == "" {
+		m.Status = raftstore.StatusOffline
+	}
+	if m.CreatedAt == "" {
+		m.CreatedAt = time.Now().Format(time.RFC3339)
+	}
+	return r.save(ctx, m)
+}
+
+// Update 更新模型元数据（Web 编辑）。
+func (r *Repo) Update(ctx context.Context, m *raftstore.Model) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	return r.store.PutModel(m.Name, mustEncode(m))
+}
+
+// SetStatus 更新模型运行状态。
+func (r *Repo) SetStatus(ctx context.Context, name, status string) error {
+	m, err := r.Get(ctx, name)
+	if err != nil {
+		return err
+	}
+	m.Status = status
+	return r.store.PutModel(name, mustEncode(m))
+}
+
+// save 校验并持久化模型。
+func (r *Repo) save(ctx context.Context, m *raftstore.Model) (*raftstore.Model, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
-	if err := r.store.PutModel(name, mustEncode(m)); err != nil {
+	if err := r.store.PutModel(m.Name, mustEncode(m)); err != nil {
 		return nil, fmt.Errorf("保存模型元数据失败: %w", err)
 	}
-	r.log.Info("本地模型已注册", "name", name, "path", abs)
+	r.log.Info("模型已注册", "name", m.Name, "engine", m.Engine, "source", m.Source)
 	return m, nil
 }
 

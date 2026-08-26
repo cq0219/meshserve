@@ -17,6 +17,7 @@ import (
 
 	"github.com/yourorg/meshserve/internal/config"
 	"github.com/yourorg/meshserve/internal/engine"
+	"github.com/yourorg/meshserve/internal/raftstore"
 )
 
 // GPUInfo GPU 资源信息。
@@ -198,6 +199,34 @@ func (a *Agent) GetEngine(instanceID string) (engine.Engine, bool) {
 	defer a.mu.Unlock()
 	e, ok := a.engines[instanceID]
 	return e, ok
+}
+
+// StopInstancesByModel 停止指定模型的所有实例（Web 停用/删除时调用）。
+func (a *Agent) StopInstancesByModel(ctx context.Context, modelName string) error {
+	for _, inst := range a.ListInstances() {
+		if inst.ModelName == modelName {
+			_ = a.StopInstance(ctx, inst.ID)
+		}
+	}
+	return nil
+}
+
+// DeployByModel 按模型部署单个实例（Web 注册/启用时调用；fake 立即就绪，vllm 探测直连）。
+// 返回实例；部署失败返回错误（模型元数据保留，状态置为 error 由调用方处理）。
+func (a *Agent) DeployByModel(ctx context.Context, m *raftstore.Model, path string) (*Instance, error) {
+	id := "inst-" + m.Name + "-web"
+	if err := a.StopInstance(ctx, id); err != nil {
+		// 忽略：实例不存在也继续
+	}
+	spec := DeploySpec{
+		ModelPath:        path,
+		Engine:           m.Engine,
+		VRAMQuota:        m.VRAMBytes,
+		TensorParallel:   m.TensorParallel,
+		PipelineParallel: m.PipelineParallel,
+		Quant:            m.Quant,
+	}
+	return a.DeployInstance(ctx, id, m.Name, spec)
 }
 
 // HealthCheck 执行本节点健康检查：实例探活 + 自愈（重启异常实例，指数退避）。

@@ -29,7 +29,11 @@ func Handler(store *raftstore.Store, members *cluster.Manager, repo *modelrepo.R
 	// API
 	mux.HandleFunc("GET /api/status", statusHandler(store, members))
 	mux.HandleFunc("GET /api/nodes", nodesHandler(members))
-	mux.HandleFunc("GET /api/models", modelsHandler(repo))
+	mux.HandleFunc("GET /api/models", modelsHandler(repo, ag))
+	mux.HandleFunc("POST /api/models", registerModelHandler(repo, ag))
+	mux.HandleFunc("PATCH /api/models/{name}", updateModelHandler(repo, ag))
+	mux.HandleFunc("POST /api/models/{name}/toggle", toggleModelHandler(repo, ag))
+	mux.HandleFunc("DELETE /api/models/{name}", deleteModelHandler(repo, ag))
 	mux.HandleFunc("GET /api/instances", instancesHandler(members, ag))
 	mux.HandleFunc("GET /api/gpu", gpuHandler(agent.CollectGPU))
 
@@ -79,18 +83,6 @@ func nodesHandler(members *cluster.Manager) http.HandlerFunc {
 		nodes := members.Members()
 		sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
 		writeJSON(w, http.StatusOK, nodes)
-	}
-}
-
-// modelsHandler 模型列表。
-func modelsHandler(repo *modelrepo.Repo) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		models, err := repo.List(r.Context())
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, models)
 	}
 }
 

@@ -58,7 +58,21 @@ func (g *Gateway) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/chat/completions", g.handleChat)
 	mux.HandleFunc("POST /v1/completions", g.handleCompletions)
 	mux.HandleFunc("GET /metrics", g.handleMetrics)
-	return g.recoverMiddleware(mux)
+	return g.corsMiddleware(g.recoverMiddleware(mux))
+}
+
+// corsMiddleware 允许浏览器跨端口调用（Web 控制台 8443 → 网关 8080 的对话请求）。
+func (g *Gateway) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // recoverMiddleware 统一 panic 恢复（防止单请求崩溃整个网关）。

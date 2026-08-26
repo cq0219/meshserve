@@ -11,10 +11,14 @@
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: "Microsoft YaHei", system-ui, sans-serif; background: var(--bg); color: var(--text); }
-  header { background: var(--primary); color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
-  header h1 { font-size: 18px; flex: 1; }
+  header { background: var(--primary); color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; flex: 1; min-width: 160px; }
   header .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); display: inline-block; }
+  nav { display: flex; gap: 4px; }
+  nav button { background: transparent; color: #cbd5e1; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  nav button.active { background: rgba(255,255,255,.15); color: #fff; }
   .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  .hidden { display: none !important; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 20px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
   .card .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
@@ -29,9 +33,15 @@
   .tag.ok { background: var(--ok); } .tag.warn { background: var(--accent); } .tag.bad { background: #b91c1c; }
   .tag.info { background: var(--primary); } .tag.gray { background: var(--muted); }
   .refresh { background: var(--accent); color: #fff; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-  .refresh:hover { opacity: 0.9; }
+  .refresh:hover { opacity: .9; }
+  .btn { border: 1px solid var(--border); background: var(--card); color: var(--primary); padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .btn.danger { color: #b91c1c; }
+  .btn:hover { opacity: .85; }
   .muted { color: var(--muted); font-size: 12px; }
-  /* GPU 监控面板 */
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .toolbar h2 { margin: 0; flex: 1; min-width: 120px; }
+  .toolbar input, .toolbar select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+  /* GPU 监控 */
   .gpu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
   .gpu-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: #fafbfd; }
   .gpu-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -40,56 +50,205 @@
   .bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
   .bar > div { height: 100%; border-radius: 4px; transition: width .5s; }
   .gpu-sub { font-size: 12px; color: var(--muted); }
+  /* 模型表单弹窗 */
+  .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modal { background: var(--card); border-radius: 10px; width: min(560px, 92vw); max-height: 88vh; overflow-y: auto; padding: 20px; }
+  .modal h3 { color: var(--primary); margin-bottom: 14px; font-size: 16px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .form-grid label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
+  .form-grid input, .form-grid select, .form-grid textarea { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+  .form-grid textarea { resize: vertical; min-height: 48px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  /* 聊天工作台 */
+  .chat-layout { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
+  .chat-side { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; height: calc(100vh - 140px); overflow-y: auto; }
+  .chat-side input { width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
+  .chat-model { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+  .chat-model:hover { background: var(--bg); }
+  .chat-model.active { background: #e8f0fa; }
+  .chat-model .st { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .chat-main { background: var(--card); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; height: calc(100vh - 140px); }
+  .chat-head { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .chat-head select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; flex: 1; min-width: 140px; }
+  .chat-head .stats { color: var(--muted); font-size: 12px; }
+  .chat-err { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; padding: 8px 12px; margin: 8px 14px 0; border-radius: 6px; font-size: 13px; display: none; }
+  #paramsPanel { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; flex-wrap: wrap; background: #fafbfd; }
+  #paramsPanel label { font-size: 12px; color: var(--muted); }
+  #paramsPanel input { width: 80px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
+  #chatMsgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 82%; padding: 9px 13px; border-radius: 10px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--primary); color: #fff; }
+  .msg.assistant { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
+  .msg.err { align-self: flex-start; background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+  .msg .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .chat-input { padding: 12px 14px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+  .chat-input textarea { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; font-size: 14px; min-height: 44px; font-family: inherit; }
+  .chat-input button { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 0 22px; cursor: pointer; font-size: 14px; }
+  .chat-input button:disabled { opacity: .5; cursor: not-allowed; }
+  .chat-empty { color: var(--muted); text-align: center; margin-top: 40%; font-size: 14px; }
+  /* toast */
+  #toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 99; display: none; }
+  @media (max-width: 720px) {
+    .chat-layout { grid-template-columns: 1fr; }
+    .chat-side, .chat-main { height: auto; }
+    .chat-main { min-height: 60vh; }
+    .form-grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
 <header>
   <span class="status-dot" id="dot"></span>
   <h1>MeshServe 控制台</h1>
+  <nav>
+    <button id="tab-overview" class="active" onclick="showView('overview')">总览</button>
+    <button id="tab-models" onclick="showView('models')">模型管理</button>
+    <button id="tab-chat" onclick="showView('chat')">模型对话</button>
+  </nav>
   <span class="muted" id="self-node" style="color:#cbd5e1"></span>
-  <button class="refresh" onclick="loadAll()">刷新</button>
+  <button class="refresh" onclick="refreshAll()">刷新</button>
 </header>
 
-<div class="container">
+<!-- 总览视图 -->
+<div id="view-overview" class="container">
   <div class="cards">
     <div class="card"><div class="label">集群 ID</div><div class="value" id="clusterId" style="font-size:16px">—</div></div>
     <div class="card"><div class="label">节点</div><div class="value" id="nodeCount">—</div><div class="sub" id="nodeOnline"></div></div>
     <div class="card"><div class="label">Leader</div><div class="value" id="leader" style="font-size:16px">—</div></div>
     <div class="card"><div class="label">已注册模型</div><div class="value" id="modelCount">—</div></div>
   </div>
-
   <div class="panel">
     <h2>节点列表</h2>
     <table><thead><tr><th>节点 ID</th><th>地址</th><th>角色</th><th>状态</th><th>GPU 数量</th></tr></thead><tbody id="nodesBody"></tbody></table>
   </div>
-
   <div class="panel">
     <h2>GPU 监控 <span class="muted" id="gpuTs">（每 5 秒刷新）</span></h2>
     <div class="gpu-grid" id="gpuBody"></div>
   </div>
-
-  <div class="panel">
-    <h2>模型列表</h2>
-    <table><thead><tr><th>名称</th><th>引擎</th><th>量化</th><th>显存需求</th><th>副本数</th></tr></thead><tbody id="modelsBody"></tbody></table>
-  </div>
-
   <div class="panel">
     <h2>集群实例</h2>
     <table><thead><tr><th>节点</th><th>实例 ID</th><th>模型</th><th>引擎</th><th>状态</th><th>显存占用</th><th>地址</th></tr></thead><tbody id="instsBody"></tbody></table>
   </div>
 </div>
 
+<!-- 模型管理视图 -->
+<div id="view-models" class="container hidden">
+  <div class="panel">
+    <div class="toolbar">
+      <h2>模型管理</h2>
+      <input id="mSearch" placeholder="搜索模型名" oninput="renderModels()">
+      <select id="mEngineFilter" onchange="renderModels()">
+        <option value="">全部引擎</option>
+        <option value="fake">fake</option><option value="vllm">vllm</option>
+        <option value="sglang">sglang</option><option value="llamacpp">llamacpp</option>
+      </select>
+      <select id="mStatusFilter" onchange="renderModels()">
+        <option value="">全部状态</option>
+        <option value="online">在线</option><option value="deploying">部署中</option>
+        <option value="offline">离线</option><option value="error">错误</option><option value="disabled">已停用</option>
+      </select>
+      <button class="refresh" onclick="openModelForm()">+ 注册模型</button>
+    </div>
+    <table><thead><tr>
+      <th>名称</th><th>引擎</th><th>量化</th><th>显存需求</th><th>参数量</th><th>状态</th><th>操作</th>
+    </tr></thead><tbody id="modelsBody"></tbody></table>
+  </div>
+</div>
+
+<!-- 模型对话视图 -->
+<div id="view-chat" class="container hidden">
+  <div class="chat-layout">
+    <div class="chat-side">
+      <input id="cSearch" placeholder="搜索模型…" oninput="renderChatModels()">
+      <div id="chatModelList"></div>
+    </div>
+    <div class="chat-main">
+      <div class="chat-head">
+        <select id="chatModelSelect" onchange="selectChatModel()"></select>
+        <button class="btn" onclick="newChat()">新建对话</button>
+        <button class="btn" onclick="toggleParams()">参数</button>
+        <span class="stats" id="chatStats"></span>
+      </div>
+      <div class="chat-err" id="chatErr"></div>
+      <div id="paramsPanel" class="hidden">
+        <label>temperature <input id="pTemp" type="number" step="0.1" min="0" max="2" value="0.7"></label>
+        <label>max_tokens <input id="pMaxTokens" type="number" step="1" min="1" value="1024"></label>
+        <label>top_p <input id="pTopP" type="number" step="0.05" min="0" max="1" value="1"></label>
+      </div>
+      <div id="chatMsgs"><div class="chat-empty">请选择左侧在线模型开始对话</div></div>
+      <div class="chat-input">
+        <textarea id="chatInput" placeholder="输入消息，Enter 发送 / Shift+Enter 换行" onkeydown="onInputKey(event)"></textarea>
+        <button id="sendBtn" onclick="sendChat()">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 模型注册/编辑弹窗 -->
+<div id="modelModal" class="modal-mask hidden">
+  <div class="modal">
+    <h3 id="modalTitle">注册模型</h3>
+    <div class="form-grid">
+      <div><label>名称 *</label><input id="fName" placeholder="如 qwen3-8b"></div>
+      <div><label>引擎 *</label><select id="fEngine">
+        <option value="fake">fake（调试）</option><option value="vllm">vllm</option>
+        <option value="sglang">sglang</option><option value="llamacpp">llamacpp</option>
+      </select></div>
+      <div class="full"><label>权重路径（本地目录）</label><input id="fPath" placeholder="/models/qwen3-8b 或 HF 模型名"></div>
+      <div class="full"><label>外部 API 端点（与路径二选一）</label><input id="fEndpoint" placeholder="http://host:8000/v1"></div>
+      <div class="full"><label>描述</label><textarea id="fDesc" placeholder="模型用途说明（可选）"></textarea></div>
+      <div><label>版本</label><input id="fVersion" value="v1"></div>
+      <div><label>量化</label><select id="fQuant">
+        <option value="fp16">fp16</option><option value="bf16">bf16</option>
+        <option value="int8">int8</option><option value="int4">int4</option>
+      </select></div>
+      <div><label>参数量（十亿，估算显存）</label><input id="fParams" type="number" min="0" step="0.1" placeholder="如 8"></div>
+      <div><label>显存需求（字节，可选）</label><input id="fVram" type="number" min="0" placeholder="留空自动估算"></div>
+      <div><label>张量并行 TP</label><input id="fTp" type="number" min="1" value="1"></div>
+      <div><label>流水线并行 PP</label><input id="fPp" type="number" min="1" value="1"></div>
+      <div><label>副本数</label><input id="fReplicas" type="number" min="1" max="8" value="1"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModelForm()">取消</button>
+      <button class="refresh" onclick="submitModelForm()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
 <script>
+let MODELS = [], INSTS = [], SELF_ID = '', GW_URL = '';
+let curChatModel = '', chatMsgs = [], chatSending = false;
+
 async function getJSON(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(url + ' -> ' + r.status);
   return r.json();
 }
 
-async function loadAll() {
+function showView(name) {
+  ['overview','models','chat'].forEach(v => {
+    document.getElementById('view-' + v).classList.toggle('hidden', v !== name);
+    document.getElementById('tab-' + v).classList.toggle('active', v === name);
+  });
+  if (name === 'models') renderModels();
+  if (name === 'chat') { renderChatModels(); loadChatHistory(); }
+}
+function refreshAll() { loadOverview(); loadModels(); }
+
+function toast(msg, ms) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.style.display = 'block';
+  clearTimeout(el._t); el._t = setTimeout(() => el.style.display = 'none', ms || 3000);
+}
+
+/* ---------- 总览 ---------- */
+async function loadOverview() {
   try {
-    const [st, nodes, models, insts] = await Promise.all([
-      getJSON('/api/status'), getJSON('/api/nodes'), getJSON('/api/models'), getJSON('/api/instances')
+    const [st, nodes, insts] = await Promise.all([
+      getJSON('/api/status'), getJSON('/api/nodes'), getJSON('/api/instances')
     ]);
     document.getElementById('dot').style.background = 'var(--ok)';
     document.getElementById('clusterId').textContent = st.cluster_id || '未初始化';
@@ -97,8 +256,13 @@ async function loadAll() {
     document.getElementById('nodeOnline').textContent = '在线 ' + st.node_online + ' / ' + st.node_count;
     document.getElementById('leader').textContent = st.leader || '—';
     document.getElementById('self-node').textContent = '本机: ' + st.self_node_id;
-    document.getElementById('modelCount').textContent = models.length;
-
+    SELF_ID = st.self_node_id;
+    // 网关地址（本机标签 gateway_port）
+    for (const n of nodes) {
+      if (n.id === SELF_ID && n.tags && n.tags.gateway_port) {
+        GW_URL = location.protocol + '//' + location.hostname + ':' + n.tags.gateway_port;
+      }
+    }
     const nb = document.getElementById('nodesBody');
     nb.innerHTML = '';
     for (const n of nodes) {
@@ -111,39 +275,22 @@ async function loadAll() {
         `<td><span class="tag info">${esc(n.role||'member')}</span></td>` +
         `<td><span class="tag ${stateCls}">${esc(n.state)}</span></td><td>${gpu}</td></tr>`;
     }
-
-    const mb = document.getElementById('modelsBody');
-    mb.innerHTML = '';
-    for (const m of models) {
-      mb.innerHTML += `<tr><td>${esc(m.name)}</td><td><span class="tag info">${esc(m.engine)}</span></td>` +
-        `<td><span class="tag gray">${esc(m.quant||'fp16')}</span></td>` +
-        `<td>${fmtBytes(m.vram_bytes)}</td><td>${m.replicas||1}</td></tr>`;
-    }
-
     const ib = document.getElementById('instsBody');
     ib.innerHTML = '';
+    INSTS = insts;
     if (insts.length === 0) ib.innerHTML = '<tr><td colspan="7" class="muted">暂无实例</td></tr>';
     for (const i of insts) {
       const stateCls = i.state === 'ready' ? 'ok' : (i.state === 'loading' ? 'warn' : 'bad');
-      const nodeTag = i.node_id === st.self_node_id ? '本机' : i.node_id;
+      const nodeTag = i.node_id === SELF_ID ? '本机' : i.node_id;
       ib.innerHTML += `<tr><td>${esc(nodeTag)}</td><td>${esc(i.id)}</td><td>${esc(i.model_name)}</td><td>${esc(i.engine)}</td>` +
         `<td><span class="tag ${stateCls}">${esc(i.state)}</span></td><td>${fmtBytes(i.vram_used)}</td><td>${esc(i.addr||'—')}</td></tr>`;
     }
+    document.getElementById('modelCount').textContent = (await getJSON('/api/models')).length;
   } catch (e) {
     document.getElementById('dot').style.background = '#b91c1c';
-    console.error('加载失败:', e);
   }
 }
 
-function fmtBytes(b) {
-  if (!b) return '—';
-  if (b >= 1<<30) return (b/(1<<30)).toFixed(1) + ' GB';
-  if (b >= 1<<20) return (b/(1<<20)).toFixed(0) + ' MB';
-  return b + ' B';
-}
-function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
-// GPU 实时监控：占用率 + 显存容量（每张卡），5 秒轮询
 async function loadGPU() {
   try {
     const gpus = await getJSON('/api/gpu');
@@ -166,13 +313,279 @@ async function loadGPU() {
         <div class="gpu-sub">已用 ${used} · 可用 ${free} · 总 ${total}</div>
       </div>`;
     }).join('');
-  } catch (e) { /* 轮询失败静默，下次重试 */ }
+  } catch (e) {}
 }
 
-loadAll();
-setInterval(loadAll, 10000);
-loadGPU();
+/* ---------- 模型管理 ---------- */
+const STATUS_META = {
+  online: ['ok', '在线'], deploying: ['warn', '部署中'], offline: ['gray', '离线'],
+  error: ['bad', '错误'], disabled: ['gray', '已停用']
+};
+async function loadModels() {
+  try { MODELS = await getJSON('/api/models'); renderModels(); renderChatModels(); }
+  catch (e) {}
+}
+function renderModels() {
+  const q = (document.getElementById('mSearch').value || '').toLowerCase();
+  const eng = document.getElementById('mEngineFilter').value;
+  const st = document.getElementById('mStatusFilter').value;
+  const tb = document.getElementById('modelsBody');
+  const list = MODELS.filter(m =>
+    (!q || m.name.toLowerCase().includes(q)) && (!eng || m.engine === eng) && (!st || m.status === st));
+  if (list.length === 0) { tb.innerHTML = '<tr><td colspan="7" class="muted">暂无模型，点击右上角「+ 注册模型」</td></tr>'; return; }
+  tb.innerHTML = list.map(m => {
+    const [cls, label] = STATUS_META[m.status] || ['gray', m.status || '—'];
+    const err = m.last_error ? `<div class="muted" style="color:#b91c1c">${esc(m.last_error)}</div>` : '';
+    return `<tr>
+      <td><b>${esc(m.name)}</b>${err}<div class="muted">${esc(m.description||'')}${m.version ? ' · v' + esc(m.version) : ''}</div></td>
+      <td><span class="tag info">${esc(m.engine)}</span></td>
+      <td><span class="tag gray">${esc(m.quant||'fp16')}</span></td>
+      <td>${fmtBytes(m.vram_bytes)}</td>
+      <td>${m.params ? m.params + 'B' : '—'}</td>
+      <td><span class="tag ${cls}">${label}</span></td>
+      <td>
+        <button class="btn" onclick="openModelForm('${esc(m.name)}')">编辑</button>
+        <button class="btn" onclick="toggleModel('${esc(m.name)}')">${m.status === 'disabled' ? '启用' : '停用'}</button>
+        <button class="btn danger" onclick="deleteModel('${esc(m.name)}')">删除</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openModelForm(name) {
+  const m = name ? MODELS.find(x => x.name === name) : null;
+  document.getElementById('modalTitle').textContent = m ? '编辑模型：' + m.name : '注册模型';
+  document.getElementById('fName').value = m ? m.name : '';
+  document.getElementById('fName').disabled = !!m;
+  document.getElementById('fEngine').value = m ? m.engine : 'fake';
+  document.getElementById('fPath').value = m ? (m.path || '') : '';
+  document.getElementById('fEndpoint').value = m ? (m.endpoint || '') : '';
+  document.getElementById('fDesc').value = m ? (m.description || '') : '';
+  document.getElementById('fVersion').value = m ? (m.version || 'v1') : 'v1';
+  document.getElementById('fQuant').value = m ? (m.quant || 'fp16') : 'fp16';
+  document.getElementById('fParams').value = m ? (m.params || '') : '';
+  document.getElementById('fVram').value = m ? (m.vram_bytes || '') : '';
+  document.getElementById('fTp').value = m ? (m.tensor_parallel || 1) : 1;
+  document.getElementById('fPp').value = m ? (m.pipeline_parallel || 1) : 1;
+  document.getElementById('fReplicas').value = m ? (m.replicas || 1) : 1;
+  document.getElementById('modelModal').classList.remove('hidden');
+}
+function closeModelForm() { document.getElementById('modelModal').classList.add('hidden'); }
+
+function formPayload() {
+  const g = id => document.getElementById(id).value;
+  return {
+    name: g('fName').trim(), engine: g('fEngine'),
+    path: g('fPath').trim(), endpoint: g('fEndpoint').trim(),
+    description: g('fDesc').trim(), version: g('fVersion').trim(), quant: g('fQuant'),
+    params: parseFloat(g('fParams')) || 0, vram: parseInt(g('fVram')) || 0,
+    tp: parseInt(g('fTp')) || 1, pp: parseInt(g('fPp')) || 1,
+    replicas: parseInt(g('fReplicas')) || 1
+  };
+}
+async function submitModelForm() {
+  const isEdit = !!document.getElementById('fName').disabled;
+  const payload = formPayload();
+  if (!payload.name) { toast('模型名称必填'); return; }
+  if (!payload.path && !payload.endpoint) { toast('权重路径与外部端点至少填一个'); return; }
+  try {
+    const r = await fetch(isEdit ? '/api/models/' + payload.name : '/api/models', {
+      method: isEdit ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { toast('操作失败: ' + (data.error || r.status)); return; }
+    toast(isEdit ? '模型已更新' : '模型已注册' + (data.status === 'error' ? '（部署失败: ' + (data.last_error || '') + '）' : ''));
+    closeModelForm(); loadModels(); loadOverview();
+  } catch (e) { toast('网络错误: ' + e.message); }
+}
+
+async function toggleModel(name) {
+  try {
+    const r = await fetch('/api/models/' + name + '/toggle', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { toast('操作失败: ' + (d.error || r.status)); return; }
+    toast(d.status === 'disabled' ? '模型已停用' : '模型已启用');
+    loadModels(); loadOverview();
+  } catch (e) { toast('网络错误: ' + e.message); }
+}
+
+async function deleteModel(name) {
+  if (!confirm('确认删除模型 ' + name + '？将停止其所有实例并删除元数据。')) return;
+  try {
+    const r = await fetch('/api/models/' + name, { method: 'DELETE' });
+    if (!r.ok) { const d = await r.json().catch(()=>({})); toast('删除失败: ' + (d.error || r.status)); return; }
+    toast('模型已删除'); loadModels(); loadOverview(); renderChatModels();
+  } catch (e) { toast('网络错误: ' + e.message); }
+}
+
+/* ---------- 模型对话 ---------- */
+function renderChatModels() {
+  const q = (document.getElementById('cSearch').value || '').toLowerCase();
+  const online = MODELS.filter(m => m.status === 'online' && (!q || m.name.toLowerCase().includes(q)));
+  const el = document.getElementById('chatModelList');
+  if (online.length === 0) { el.innerHTML = '<span class="muted">暂无在线模型，请先在模型管理中注册/启用</span>'; return; }
+  el.innerHTML = online.map(m => `
+    <div class="chat-model ${m.name === curChatModel ? 'active' : ''}" onclick="setChatModel('${esc(m.name)}')">
+      <span>${esc(m.name)}</span><span class="st" style="background:var(--ok)"></span>
+    </div>`).join('');
+  const sel = document.getElementById('chatModelSelect');
+  sel.innerHTML = online.map(m => `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('');
+  if (!online.some(m => m.name === curChatModel)) {
+    if (online.length > 0) setChatModel(online[0].name); else curChatModel = '';
+  } else {
+    sel.value = curChatModel;
+  }
+}
+function setChatModel(name) {
+  curChatModel = name;
+  document.getElementById('chatModelSelect').value = name;
+  renderChatModels(); loadChatHistory();
+}
+function selectChatModel() { setChatModel(document.getElementById('chatModelSelect').value); }
+
+function loadChatHistory() {
+  chatMsgs = [];
+  const key = 'meshserve:chat:' + curChatModel;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) chatMsgs = JSON.parse(raw);
+  } catch (e) {}
+  renderChat();
+}
+function newChat() { chatMsgs = []; renderChat(); }
+function saveChat() {
+  try { localStorage.setItem('meshserve:chat:' + curChatModel, JSON.stringify(chatMsgs.slice(-40))); }
+  catch (e) {}
+}
+function renderChat() {
+  const el = document.getElementById('chatMsgs');
+  if (!curChatModel) { el.innerHTML = '<div class="chat-empty">请选择左侧在线模型开始对话</div>'; return; }
+  if (chatMsgs.length === 0) { el.innerHTML = '<div class="chat-empty">与 ' + esc(curChatModel) + ' 开始新对话</div>'; return; }
+  el.innerHTML = chatMsgs.map(m => {
+    const cls = m.role === 'user' ? 'user' : (m.role === 'error' ? 'err' : 'assistant');
+    const meta = m.ts ? `<div class="meta">${new Date(m.ts).toLocaleTimeString()}</div>` : '';
+    return `<div class="msg ${cls}">${esc(m.content)}${meta}</div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function onInputKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+}
+function toggleParams() { document.getElementById('paramsPanel').classList.toggle('hidden'); }
+function showErr(msg) {
+  const el = document.getElementById('chatErr');
+  el.textContent = msg; el.style.display = 'block';
+  clearTimeout(el._t); el._t = setTimeout(() => el.style.display = 'none', 8000);
+}
+function appendAssistantText(text, meta) {
+  const el = document.getElementById('chatMsgs');
+  let node = el.querySelector('.msg.assistant:last-child');
+  if (!node || node.dataset.live !== '1') {
+    const div = document.createElement('div');
+    div.className = 'msg assistant'; div.dataset.live = '1';
+    div.innerHTML = '';
+    el.appendChild(div);
+    const metaDiv = document.createElement('div');
+    metaDiv.className = 'meta'; metaDiv.id = 'liveMeta';
+    div.appendChild(metaDiv);
+    node = div;
+  }
+  node.childNodes[0].textContent += text;
+  el.scrollTop = el.scrollHeight;
+  if (meta) document.getElementById('liveMeta').textContent = meta;
+}
+
+async function sendChat() {
+  if (chatSending) return;
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+  if (!curChatModel) { showErr('请先选择在线模型'); return; }
+  if (!GW_URL) { showErr('网关地址不可用（控制台未获取 gateway_port 标签）'); return; }
+  input.value = '';
+  chatMsgs.push({ role: 'user', content: text, ts: Date.now() });
+  renderChat();
+  const t0 = performance.now();
+  chatSending = true;
+  document.getElementById('sendBtn').disabled = true;
+  document.getElementById('chatStats').textContent = '生成中…';
+  try {
+    const resp = await fetch(GW_URL + '/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: curChatModel,
+        messages: chatMsgs.filter(m => m.role !== 'error').map(m => ({ role: m.role, content: m.content })),
+        temperature: parseFloat(document.getElementById('pTemp').value) || 0.7,
+        max_tokens: parseInt(document.getElementById('pMaxTokens').value) || 1024,
+        top_p: parseFloat(document.getElementById('pTopP').value) || 1,
+        stream: true
+      })
+    });
+    if (!resp.ok) {
+      let msg = 'HTTP ' + resp.status;
+      try { const j = await resp.json(); msg = j.error?.message || j.error || msg; } catch (e) {}
+      throw new Error(msg);
+    }
+    if (!resp.body) throw new Error('响应无流式数据');
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '', full = '', tokens = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+        const line = chunk.split('\n').find(l => l.startsWith('data: '));
+        if (!line) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') { buf = ''; break; }
+        try {
+          const j = JSON.parse(data);
+          const delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
+          if (delta) { full += delta; tokens++; appendAssistantText(delta); }
+          if (j.usage && j.usage.completion_tokens) tokens = j.usage.completion_tokens;
+        } catch (e) {}
+      }
+    }
+    const ms = Math.round(performance.now() - t0);
+    if (full) {
+      document.getElementById('chatStats').textContent = `耗时 ${ms}ms · 输出 ${tokens} tokens`;
+      document.getElementById('liveMeta').textContent = `耗时 ${ms}ms · 输出 ${tokens} tokens`;
+    } else {
+      throw new Error('模型返回空响应（可能是模型名不匹配）');
+    }
+    chatMsgs.push({ role: 'assistant', content: full, ts: Date.now() });
+    saveChat();
+  } catch (e) {
+    chatMsgs.push({ role: 'error', content: '❌ ' + e.message, ts: Date.now() });
+    document.getElementById('chatStats').textContent = '';
+    showErr(e.message);
+  } finally {
+    chatSending = false;
+    document.getElementById('sendBtn').disabled = false;
+    renderChat();
+  }
+}
+
+function fmtBytes(b) {
+  if (!b) return '—';
+  if (b >= 1<<30) return (b/(1<<30)).toFixed(1) + ' GB';
+  if (b >= 1<<20) return (b/(1<<20)).toFixed(0) + ' MB';
+  return b + ' B';
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ---------- 启动 ---------- */
+loadOverview(); loadModels(); loadGPU();
+setInterval(loadOverview, 10000);
 setInterval(loadGPU, 5000);
+setInterval(loadModels, 10000);
 </script>
 </body>
 </html>
