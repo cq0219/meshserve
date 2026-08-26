@@ -215,9 +215,8 @@ func (a *Agent) StopInstancesByModel(ctx context.Context, modelName string) erro
 // 返回实例；部署失败返回错误（模型元数据保留，状态置为 error 由调用方处理）。
 func (a *Agent) DeployByModel(ctx context.Context, m *raftstore.Model, path string) (*Instance, error) {
 	id := "inst-" + m.Name + "-web"
-	if err := a.StopInstance(ctx, id); err != nil {
-		// 忽略：实例不存在也继续
-	}
+	// 先停旧实例（不存在则忽略）
+	_ = a.StopInstance(ctx, id)
 	spec := DeploySpec{
 		ModelPath:        path,
 		Engine:           m.Engine,
