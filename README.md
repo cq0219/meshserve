@@ -43,6 +43,10 @@ meshserve join --token <TOKEN> <A的IP>
 meshserve run --engine vllm
 ```
 
+## 模型部署
+
+- [单节点部署 Qwen3-8B（vLLM 引擎）](docs/deploy-qwen-vllm.md) —— 完整部署指南（vLLM 直连模式、参数说明、FAQ、多型号变体）
+
 ## 项目结构
 
 ```
