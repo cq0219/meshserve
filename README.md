@@ -15,6 +15,13 @@
 - 🛡️ 统一错误处理：错误分类 + 结构化日志 + 优雅退出
 - ✅ 开箱即用：零 GPU 环境可用 `--engine fake` 完整演示
 
+## 安装要求（Ubuntu）
+
+- **NVIDIA 驱动**：RTX 50 系列必须安装**带 `-open` 后缀的驱动版本**（如 `nvidia-driver-580-open`），驱动版本需 **≥ 580**；其他显卡建议 ≥580。CUDA Toolkit 无需单独安装（vLLM 的 pip wheel 自带 CUDA runtime）
+- **Python**：默认 **3.10** 版本（脚本参数 `PY_VERSION` 可覆盖为 3.11/3.12）；vLLM 直接装入系统 Python（无 venv 隔离）
+- **Go**：≥ 1.25（仅源码构建 MeshServe 需要；用预编译二进制可跳过）
+- **一键安装**：[`docs/install-ubuntu.sh`](docs/install-ubuntu.sh) 自动完成驱动（50 系自动选 `-open`）/Python 3.10/Go/vLLM/MeshServe 安装，支持 `--skip-driver`、`--no-meshserve`、`--gpu-gen 50` 等参数，详见 [安装指南](docs/install-ubuntu.md)
+
 ## 快速开始（单机演示，无需 GPU）
 
 ```bash
