@@ -4,6 +4,8 @@ package engine
 
 import (
 	"context"
+	"log/slog"
+	"time"
 )
 
 // ChatMessage 对话消息（OpenAI 兼容）。
@@ -39,6 +41,8 @@ type LoadConfig struct {
 	Quant string
 	// VRAMQuotaBytes 显存配额（字节）
 	VRAMQuotaBytes uint64
+	// ModelName 模型名（vLLM served-model-name，进程拉起时使用）
+	ModelName string
 	// Extra 引擎附加参数（透传）
 	Extra map[string]string
 }
@@ -64,12 +68,20 @@ var registry = map[string]func(opts Options) Engine{}
 
 // Options 引擎通用配置。
 type Options struct {
-	// HTTPAddr 引擎 HTTP 服务地址（vLLM 场景）
+	// HTTPAddr 引擎 HTTP 服务地址（vLLM 场景，agent 分配端口）
 	HTTPAddr string
 	// Command 引擎可执行命令（llamacpp 场景）
 	Command string
 	// Args 引擎启动参数
 	Args []string
+	// VLLMBin vLLM 可执行文件（默认 "vllm"，M6 进程拉起模式）
+	VLLMBin string
+	// VLLMTimeout vLLM 启动就绪等待时长（默认 300s）
+	VLLMTimeout time.Duration
+	// VLLMExtraArgs vLLM 启动附加参数（如 "--max-model-len 32768"）
+	VLLMExtraArgs []string
+	// Logger 引擎日志器
+	Logger *slog.Logger
 }
 
 // Register 注册引擎实现（init 时调用）。

@@ -172,6 +172,15 @@ internal/observ          结构化日志
 | **测试数据** | config/console/raftstore 回归全绿 |
 | **本地 E2E 验证** | A init+run；B 直接 run（无 join_addr）→ 日志"自动发现引导节点"→ A 控制台 node_count=2/online=2 |
 
+### M7 — vLLM 进程拉起模式（2026-08-27）
+
+| 类别 | 内容 |
+|------|------|
+| **新增功能** | vLLM 从"直连已有服务"改为 **MeshServe 拉起进程并管理生命周期**：注册模型后动态分配端口执行 `vllm serve <model> --served-model-name <name>`，轮询 `/v1/models` 就绪（默认 300s）；停用/删除自动终止进程；健康自愈重启；端口已有就绪服务时复用兼容。新增配置 `agent.vllm_bin` / `vllm_timeout_seconds` / `vllm_extra_args` |
+| **配套修复** | ① 健康探针误杀 loading 实例（就绪前探测失败触发无谓重启循环）→ 仅探活 ready 实例；② 自愈用约定目录而非实例实际路径 → Instance 记录 ModelPath 精确恢复 |
+| **测试数据** | engine 新增 4 用例（复用已有服务/可执行缺失/地址为空/端口提取）；engine/agent/console/config/raftstore/gateway 6 包回归全绿 |
+| **本地 E2E 验证** | 注册 vllm 模型 → 自动拉起 fake vllm 进程 → online 稳定（15s 无自愈误杀）→ 网关 SSE 对话返回内容 → 停用杀进程（python 进程 0）→ 启用重新拉起 |
+
 ## 测试
 
 ```bash
