@@ -72,12 +72,6 @@ type AgentConfig struct {
 	RPCAddr string `yaml:"rpc_addr" json:"rpc_addr"`
 	// Engine 默认推理引擎：vllm|sglang|llamacpp|fake
 	Engine string `yaml:"engine" json:"engine"`
-	// VLLMBin vLLM 可执行文件（M6 进程拉起模式，默认 "vllm"）
-	VLLMBin string `yaml:"vllm_bin" json:"vllm_bin"`
-	// VLLMTimeoutSeconds vLLM 启动就绪等待秒数（默认 300）
-	VLLMTimeoutSeconds int `yaml:"vllm_timeout_seconds" json:"vllm_timeout_seconds"`
-	// VLLMExtraArgs vLLM 启动附加参数（空格分隔，如 "--max-model-len 32768"）
-	VLLMExtraArgs string `yaml:"vllm_extra_args" json:"vllm_extra_args"`
 }
 
 // Default 返回内置默认配置。
@@ -100,11 +94,8 @@ func Default() *Config {
 			HTTPAddr: "0.0.0.0:8443",
 		},
 		Agent: AgentConfig{
-			RPCAddr:            "0.0.0.0:9100",
-			Engine:             "vllm",
-			VLLMBin:            "vllm",
-			VLLMTimeoutSeconds: 300,
-			VLLMExtraArgs:      "",
+			RPCAddr: "0.0.0.0:9100",
+			Engine:  "vllm",
 		},
 	}
 }

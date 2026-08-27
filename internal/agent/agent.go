@@ -7,12 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,8 +50,6 @@ type Instance struct {
 	State     InstanceState `json:"state"`
 	Addr      string        `json:"addr,omitempty"`
 	VRAMUsed  uint64        `json:"vram_used,omitempty"`
-	// ModelPath 部署时的权重路径（自愈恢复时精确复用，避免误用约定目录）
-	ModelPath string `json:"model_path,omitempty"`
 	// TensorParallel / PipelineParallel / Quant 部署分片信息（自愈恢复时复用，M3）
 	TensorParallel   int       `json:"tensor_parallel,omitempty"`
 	PipelineParallel int       `json:"pipeline_parallel,omitempty"`
@@ -134,24 +130,16 @@ func (a *Agent) DeployInstance(ctx context.Context, id, modelName string, spec D
 	inst := &Instance{
 		ID: id, ModelName: modelName, Engine: spec.Engine, State: InstLoading,
 		TensorParallel: spec.TensorParallel, PipelineParallel: spec.PipelineParallel, Quant: spec.Quant,
-		VRAMUsed: spec.VRAMQuota, ModelPath: spec.ModelPath, StartedAt: time.Now(),
+		VRAMUsed: spec.VRAMQuota, StartedAt: time.Now(),
 	}
 	a.instances[id] = inst
 	a.mu.Unlock()
 
 	a.log.Info("部署实例", "id", id, "model", modelName, "engine", spec.Engine,
 		"tp", spec.TensorParallel, "pp", spec.PipelineParallel, "quant", spec.Quant, "path", spec.ModelPath)
-	// M6：vLLM 由 MeshServe 拉起进程管理（动态分配端口；已就绪外部服务则复用）
-	eng := engine.Create(spec.Engine, engine.Options{
-		HTTPAddr:      defaultEngineAddr(spec.Engine),
-		VLLMBin:       a.cfg.Agent.VLLMBin,
-		VLLMTimeout:   time.Duration(a.cfg.Agent.VLLMTimeoutSeconds) * time.Second,
-		VLLMExtraArgs: splitArgs(a.cfg.Agent.VLLMExtraArgs),
-		Logger:        a.log,
-	})
+	eng := engine.Create(spec.Engine, engine.Options{HTTPAddr: defaultEngineAddr(spec.Engine)})
 	if err := eng.Load(ctx, engine.LoadConfig{
 		ModelPath:      spec.ModelPath,
-		ModelName:      modelName,
 		TensorParallel: spec.TensorParallel,
 		Quant:          spec.Quant,
 		VRAMQuotaBytes: spec.VRAMQuota,
@@ -256,10 +244,6 @@ func (a *Agent) HealthCheck(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		// 仅探活已就绪实例：loading 中的实例由 Load 负责就绪，探测会误判失败触发无谓重启
-		if inst.State != InstReady {
-			continue
-		}
 		if eng == nil {
 			// 引擎引用丢失（异常场景）：尝试重启
 			a.log.Warn("实例引擎引用丢失，尝试重启", "id", id)
@@ -280,14 +264,10 @@ func (a *Agent) HealthCheck(ctx context.Context) {
 	}
 }
 
-// specOf 从实例记录构造部署规格（自愈恢复时复用原路径与分片参数，M3）。
+// specOf 从实例记录构造部署规格（自愈恢复时复用原分片参数，M3）。
 func specOf(inst *Instance, modelsDir string) DeploySpec {
-	path := inst.ModelPath
-	if path == "" {
-		path = modelFilePath(modelsDir, inst.ModelName)
-	}
 	return DeploySpec{
-		ModelPath:        path,
+		ModelPath:        modelFilePath(modelsDir, inst.ModelName),
 		Engine:           inst.Engine,
 		VRAMQuota:        inst.VRAMUsed,
 		TensorParallel:   inst.TensorParallel,
@@ -320,32 +300,10 @@ func (a *Agent) Shutdown() { close(a.stop) }
 func defaultEngineAddr(name string) string {
 	switch name {
 	case "vllm", "sglang":
-		// M6：MeshServe 拉起 vLLM 进程，为每个实例动态分配空闲端口
-		return "127.0.0.1:" + itoa(freePort())
+		return "127.0.0.1:8000"
 	default:
 		return ""
 	}
-}
-
-// freePort 获取一个空闲 TCP 端口（动态分配，供拉起引擎进程使用）。
-func freePort() int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 8000
-	}
-	defer func() { _ = l.Close() }()
-	return l.Addr().(*net.TCPAddr).Port
-}
-
-// itoa 整数转字符串（避免 strconv 重复导入）。
-func itoa(n int) string { return strconv.Itoa(n) }
-
-// splitArgs 将空格分隔的参数字符串拆分为切片（配置 vllm_extra_args 用）。
-func splitArgs(s string) []string {
-	if strings.TrimSpace(s) == "" {
-		return nil
-	}
-	return strings.Fields(s)
 }
 
 // modelFilePath 计算模型目录下的权重路径。

@@ -1,47 +1,67 @@
 # 单节点部署 Qwen3-8B（vLLM 引擎）
 
-在 MeshServe 集群的单节点上，以 vLLM 引擎启用 Qwen3-8B 模型——**MeshServe 自动拉起 vLLM 进程**并管理其生命周期（启动/就绪轮询/健康自愈/停止）。
+在 MeshServe 集群的单节点上，以 vLLM 引擎启用 Qwen3-8B 模型的完整操作指南。
 
-> 其他 Qwen3 型号（4B/14B/32B/30B-A3B）仅需替换模型路径/名称与显存参数，其余步骤不变。
+> 其他 Qwen3 型号（4B/14B/32B/30B-A3B）仅需替换第 1 步的模型名与显存参数，其余步骤不变。
 
 ## 架构说明
 
-MeshServe 对 vLLM 采用**进程拉起模式（M7）**：
-
-1. **自动拉起**：注册模型后，MeshServe 在本机动态分配端口，执行 `vllm serve <模型路径> --host 127.0.0.1 --port <端口> --served-model-name <模型名>` 拉起进程，轮询 `/v1/models` 直至就绪（默认 300s）；
-2. **生命周期管理**：停用/删除模型时自动终止进程；进程崩溃由健康探针发现并自动重启（自愈）；
-3. **复用兼容**：若目标端口已有就绪的 vLLM 服务（手动启动），直接复用不重复拉起。
+MeshServe 对 vLLM 采用**直连模式**：它不负责拉起 vLLM 进程，而是探测本机 `127.0.0.1:8000` 上**已运行**的 vLLM OpenAI 兼容服务，就绪后挂载为推理实例。
 
 ```
 ┌────────────────────────────────────────────┐
 │ 同一节点                                    │
 │                                            │
-│  MeshServe run ──拉起──▶ vLLM 子进程 :<动态端口>│
-│   (agent)               (qwen3-8b)         │
-│    ├── 就绪轮询/健康探针 ◀── /v1/models     │
-│    ├── 网关 :8080 (OpenAI 兼容)            │
-│    └── 控制台 :8443                        │
+│  vLLM 进程 ──:8000──┐                      │
+│  (qwen3-8b)         │  HTTP 直连          │
+│                     ▼                      │
+│  meshserve run ──  agent(探测:8000)        │
+│                    ├─ 网关 :8080 (OpenAI)  │
+│                    └─ 控制台 :8443         │
 └────────────────────────────────────────────┘
 ```
 
-**安装前提：本机已安装 vLLM（`pip install vllm`）。**
+**启动顺序：先起 vLLM，再起 MeshServe。**
 
 ## 前置条件
 
 | 项 | 要求 | 说明 |
 |---|---|---|
 | GPU | 单卡 ≥24 GB | Qwen3-8B fp16 权重约 16 GB + KV cache |
-| vLLM | ≥ 0.6.0 | `pip install vllm` 或 Docker：`vllm/vllm-openai`（宿主机运行） |
-| 模型 | 本地权重目录或 HF 模型名 | 权重约 16 GB |
+| vLLM | ≥ 0.6.0 | `pip install vllm` 或 Docker：`vllm/vllm-openai` |
 | MeshServe | 已编译 | `make build`（生成 `./bin/meshserve`） |
+| 网络 | 可访问 HuggingFace 或已本地下载模型 | 权重约 16 GB |
 
 ## 详细步骤
 
-### 第 1 步：安装 vLLM
+### 第 1 步：启动 vLLM 服务
+
+**方式 A：pip 安装（推荐）**
 
 ```bash
-pip install vllm
-vllm --version   # 确认可用
+vllm serve Qwen/Qwen3-8B \
+  --served-model-name qwen3-8b \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --gpu-memory-utilization 0.90 \
+  --max-model-len 32768
+```
+
+**方式 B：Docker**
+
+```bash
+docker run --gpus all --shm-size 16g -p 8000:8000 \
+  vllm/vllm-openai:latest \
+  --model Qwen/Qwen3-8B \
+  --served-model-name qwen3-8b \
+  --gpu-memory-utilization 0.90 \
+  --max-model-len 32768
+```
+
+**验证就绪**（返回模型列表即成功）：
+
+```bash
+curl http://127.0.0.1:8000/v1/models
 ```
 
 ### 第 2 步：初始化集群（首次部署执行）
@@ -54,28 +74,31 @@ meshserve init --name prod
 
 ```bash
 meshserve model register qwen3-8b \
-  --path /path/to/Qwen3-8B \    # 本地权重目录（或 HF 模型名）
+  --path Qwen/Qwen3-8B \
   --engine vllm \
   --quant fp16 \
   --params 8
 ```
 
-### 第 4 步：启动 MeshServe（自动拉起 vLLM）
+> `--params 8` 自动估算显存 ≈ 16.6 GB；显存紧张可改用 `--quant int8`（估算减半，需 vLLM 侧加载 int8 权重）。
+
+查看注册结果：`meshserve model list`
+
+### 第 4 步：启动 MeshServe 节点
 
 ```bash
 meshserve run
 ```
 
-启动日志关键行（vLLM 被自动拉起并就绪）：
+启动日志关键行（出现即成功）：
 
 ```
 部署实例 id=inst-qwen3-8b-restore model=qwen3-8b engine=vllm ...
-vLLM 进程已启动 bin=vllm args="serve /path/to/Qwen3-8B --host 127.0.0.1 --port 54321 --served-model-name qwen3-8b" pid=12345
-vLLM 进程已就绪 addr=127.0.0.1:54321 model=qwen3-8b
+实例就绪 id=inst-qwen3-8b-restore addr=127.0.0.1:8000
 模型已恢复 model=qwen3-8b instance=inst-qwen3-8b-restore
 ```
 
-若出现 `未找到 vllm 可执行文件`：确认 vLLM 已安装（`pip install vllm`），或通过配置指定路径（见下）。
+若出现 `vLLM 服务未就绪`：确认第 1 步服务正常、端口为 8000 且与本节点同机。
 
 ### 第 5 步：验证推理（走 MeshServe 网关）
 
@@ -83,39 +106,45 @@ vLLM 进程已就绪 addr=127.0.0.1:54321 model=qwen3-8b
 # 集群状态
 meshserve status
 
-# 对话推理（网关自动路由到拉起进程）
+# 模型列表
+curl http://localhost:8080/v1/models
+
+# 对话推理
 curl http://localhost:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"qwen3-8b","messages":[{"role":"user","content":"用一句话介绍你自己"}]}'
 ```
 
-Web 控制台：`http://<节点IP>:8443` —— 模型状态 `online`；GPU 监控实时显示占用率与显存。
+Web 控制台：`http://<节点IP>:8443` —— 集群实例表应显示 `qwen3-8b / vllm / ready` 及显存占用；节点表显示 GPU 资源（型号/数量/总显存）。
 
-## 可选配置（agent 段）
+## 参数说明
 
-| 配置项 | 默认 | 说明 |
+### vLLM 侧
+
+| 参数 | 作用 | 建议值 |
 |---|---|---|
-| `agent.vllm_bin` | `vllm` | vLLM 可执行文件（支持"命令 + 前缀参数"，如 `python /opt/fake_vllm.py`） |
-| `agent.vllm_timeout_seconds` | `300` | 启动就绪等待秒数（大模型加载慢可调大） |
-| `agent.vllm_extra_args` | 空 | 附加启动参数，空格分隔，如 `--max-model-len 32768 --gpu-memory-utilization 0.9` |
+| `--served-model-name` | vLLM 对外模型名（建议与 MeshServe 注册名一致） | `qwen3-8b` |
+| `--gpu-memory-utilization` | 显存占用上限，为 KV cache 预留 | 0.85–0.92 |
+| `--max-model-len` | 上下文长度（越大 KV cache 越吃显存） | 24 GB 单卡 ≤ 32768 |
+| `--tensor-parallel-size` | 多卡张量并行（TP） | 24 GB 单卡 = 1；多卡按卡数 |
 
-示例（`~/.meshserve/config.yaml`）：
+### MeshServe 侧
 
-```yaml
-agent:
-  vllm_bin: vllm
-  vllm_timeout_seconds: 600
-  vllm_extra_args: "--max-model-len 32768 --gpu-memory-utilization 0.9"
-```
+| 参数 | 作用 | 说明 |
+|---|---|---|
+| `--path` | 模型权重路径/HF 模型名（元数据记录用） | 与 vLLM 加载模型对应 |
+| `--engine` | 推理引擎 | 必须 `vllm` |
+| `--quant` | 量化档位 | `fp16`/`bf16`/`int8`/`int4`，参与显存估算 |
+| `--params` | 参数量（十亿） | 用于显存估算 |
+| `--vram` | 显式覆盖显存需求（字节） | 优先级高于 `--params` |
 
 ## 常见问题（FAQ）
 
 | 现象 | 原因 | 解决 |
 |---|---|---|
-| 注册后模型状态 `error`，`last_error` 提示"未找到 vllm 可执行文件" | vLLM 未安装或不在 PATH | `pip install vllm`；或配置 `agent.vllm_bin` 指定绝对路径 |
-| 状态 `error`，提示"等待 vLLM 就绪超时" | 模型加载慢 / 参数不当 / 显存不足 | 调大 `vllm_timeout_seconds`；检查 `vllm_extra_args`（减 max-model-len、降 gpu-memory-utilization）；看 run 日志中 vLLM 输出 |
-| 显存不足（OOM） | KV cache 或权重超显存 | `vllm_extra_args: "--max-model-len 16384 --gpu-memory-utilization 0.80"` |
-| 请求返回模型不存在 | 模型名不匹配 | 使用注册名（`qwen3-8b`）请求，或 `curl /v1/models` 查看实际名称 |
+| `vLLM 服务未就绪` | vLLM 未启动 / 端口不是 8000 / 不在同机 | 先起 vLLM；MeshServe 当前固定探测 `127.0.0.1:8000` |
+| 显存不足（OOM） | KV cache 或权重超显存 | 三选一：MeshServe 注册 `--quant int8`；vLLM `--max-model-len 16384`；`--gpu-memory-utilization 0.80` |
+| 请求返回模型不存在 | 模型名不匹配 | `curl /v1/models` 确认实际模型名，与注册名保持一致 |
 | 控制台 GPU 显示"无" | 节点无 NVIDIA GPU 或 nvidia-smi 不可用 | 真实 GPU 环境自动采集；无 GPU 时属正常降级 |
 
 ## 变体：其他 Qwen3 型号
@@ -127,13 +156,23 @@ agent:
 | Qwen3-30B-A3B（MoE） | ≈ 18 GB（激活 3B） | 单卡 24 GB；`--max-model-len 32768` |
 | Qwen3-32B | ≈ 64 GB | 2× 卡 TP=2 或 4 卡 TP=4（int8） |
 
-多卡 TP：注册时 `--tp 2`，MeshServe 自动追加 `--tensor-parallel-size 2` 拉起。
+MoE 模型示例（vLLM 侧）：
+
+```bash
+vllm serve Qwen/Qwen3-30B-A3B \
+  --served-model-name qwen3-30b \
+  --gpu-memory-utilization 0.90 \
+  --max-model-len 32768
+```
 
 ## 停止与清理
 
 ```bash
-# 停止 MeshServe（Ctrl+C 优雅退出，同时终止拉起的 vLLM 进程）
-# 删除模型（终止 vLLM 进程 + 删除元数据）
+# 停止 MeshServe（Ctrl+C 优雅退出）
+# 停止 vLLM
+pkill -f "vllm serve"        # 或 docker stop <容器>
+
+# 删除模型元数据（保留权重）
 meshserve model remove qwen3-8b
 
 # 彻底清理集群（删除本地数据目录 ~/.meshserve）
