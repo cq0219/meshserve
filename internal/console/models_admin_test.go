@@ -15,6 +15,7 @@ import (
 	"github.com/yourorg/meshserve/internal/config"
 	"github.com/yourorg/meshserve/internal/modelrepo"
 	"github.com/yourorg/meshserve/internal/raftstore"
+	"github.com/yourorg/meshserve/internal/scheduler"
 )
 
 // adminEnv 模型管理测试环境：返回 handler + repo + 临时模型目录。
@@ -52,7 +53,7 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	}
 	t.Cleanup(func() { _ = members.Shutdown() })
 	ag := agent.New(cfg, log)
-	h, err := Handler(store, members, repo, ag)
+	h, err := Handler(store, members, repo, ag, scheduler.NewPPCoordinator(log), func(string, string) {}, "fake")
 	if err != nil {
 		t.Fatalf("Handler 失败: %v", err)
 	}

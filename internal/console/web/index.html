@@ -207,6 +207,7 @@
       <div><label>显存需求（字节，可选）</label><input id="fVram" type="number" min="0" placeholder="留空自动估算"></div>
       <div><label>张量并行 TP</label><input id="fTp" type="number" min="1" value="1"></div>
       <div><label>流水线并行 PP</label><input id="fPp" type="number" min="1" value="1"></div>
+      <div><label>vLLM 服务端口（PP 时 rank0 端口，留空默认 8000）</label><input id="fPort" type="number" min="0" placeholder="留空自动"></div>
       <div><label>副本数</label><input id="fReplicas" type="number" min="1" max="8" value="1"></div>
     </div>
     <div class="modal-actions">
@@ -367,6 +368,7 @@ function openModelForm(name) {
   document.getElementById('fVram').value = m ? (m.vram_bytes || '') : '';
   document.getElementById('fTp').value = m ? (m.tensor_parallel || 1) : 1;
   document.getElementById('fPp').value = m ? (m.pipeline_parallel || 1) : 1;
+  document.getElementById('fPort').value = m ? (m.port || '') : '';
   document.getElementById('fReplicas').value = m ? (m.replicas || 1) : 1;
   document.getElementById('modelModal').classList.remove('hidden');
 }
@@ -380,6 +382,7 @@ function formPayload() {
     description: g('fDesc').trim(), version: g('fVersion').trim(), quant: g('fQuant'),
     params: parseFloat(g('fParams')) || 0, vram: parseInt(g('fVram')) || 0,
     tp: parseInt(g('fTp')) || 1, pp: parseInt(g('fPp')) || 1,
+    port: parseInt(g('fPort')) || 0,
     replicas: parseInt(g('fReplicas')) || 1
   };
 }

@@ -17,23 +17,26 @@ import (
 	"github.com/yourorg/meshserve/internal/cluster"
 	"github.com/yourorg/meshserve/internal/modelrepo"
 	"github.com/yourorg/meshserve/internal/raftstore"
+	"github.com/yourorg/meshserve/internal/scheduler"
 )
 
 //go:embed web/*
 var webFS embed.FS
 
 // Handler 返回控制台 HTTP 处理器（API + 静态资源）。
-func Handler(store *raftstore.Store, members *cluster.Manager, repo *modelrepo.Repo, ag *agent.Agent) (http.Handler, error) {
+// ppc 用于 PP>1 模型跨节点编排；registerRemote 将 PP rank0 地址注册到网关远端路由。
+func Handler(store *raftstore.Store, members *cluster.Manager, repo *modelrepo.Repo, ag *agent.Agent,
+	ppc *scheduler.PPCoordinator, registerRemote func(modelName, addr string), backend string) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	// API
 	mux.HandleFunc("GET /api/status", statusHandler(store, members))
 	mux.HandleFunc("GET /api/nodes", nodesHandler(members))
 	mux.HandleFunc("GET /api/models", modelsHandler(repo, ag))
-	mux.HandleFunc("POST /api/models", registerModelHandler(repo, ag))
-	mux.HandleFunc("PATCH /api/models/{name}", updateModelHandler(repo, ag))
-	mux.HandleFunc("POST /api/models/{name}/toggle", toggleModelHandler(repo, ag))
-	mux.HandleFunc("DELETE /api/models/{name}", deleteModelHandler(repo, ag))
+	mux.HandleFunc("POST /api/models", registerModelHandler(repo, ag, members, ppc, registerRemote, backend))
+	mux.HandleFunc("PATCH /api/models/{name}", updateModelHandler(repo, ag, members, ppc, registerRemote, backend))
+	mux.HandleFunc("POST /api/models/{name}/toggle", toggleModelHandler(repo, ag, members, ppc, registerRemote, backend))
+	mux.HandleFunc("DELETE /api/models/{name}", deleteModelHandler(repo, ag, members))
 	mux.HandleFunc("GET /api/instances", instancesHandler(members, ag))
 	mux.HandleFunc("GET /api/gpu", gpuHandler(agent.CollectGPU))
 

@@ -54,11 +54,14 @@ type Instance struct {
 	TensorParallel   int       `json:"tensor_parallel,omitempty"`
 	PipelineParallel int       `json:"pipeline_parallel,omitempty"`
 	Quant            string    `json:"quant,omitempty"`
+	Port             int       `json:"port,omitempty"`
+	PPRank           int       `json:"pp_rank,omitempty"`
+	Args             []string  `json:"args,omitempty"`
 	StartedAt        time.Time `json:"started_at"`
 	LastError        string    `json:"last_error,omitempty"`
 }
 
-// DeploySpec 实例部署规格（由调度器决策/恢复流程传入，M3 分片）。
+// DeploySpec 实例部署规格（由调度器决策/远端 API 传入，M3 分片）。
 type DeploySpec struct {
 	// ModelPath 模型权重路径
 	ModelPath string
@@ -72,6 +75,14 @@ type DeploySpec struct {
 	PipelineParallel int
 	// Quant 量化档位：fp16|bf16|int8|int4
 	Quant string
+	// Port 引擎 HTTP 服务端口（0=默认 8000，多实例自动分配）
+	Port int
+	// PPRank 流水线并行 rank（0=rank0 暴露 API；>0=worker 仅参与计算）
+	PPRank int
+	// DistributedBackend 跨节点并行后端：ray|mp
+	DistributedBackend string
+	// Args 引擎启动参数（vllm serve 追加参数）
+	Args []string
 }
 
 // Agent 节点代理。
@@ -130,19 +141,29 @@ func (a *Agent) DeployInstance(ctx context.Context, id, modelName string, spec D
 	inst := &Instance{
 		ID: id, ModelName: modelName, Engine: spec.Engine, State: InstLoading,
 		TensorParallel: spec.TensorParallel, PipelineParallel: spec.PipelineParallel, Quant: spec.Quant,
+		Port: spec.Port, PPRank: spec.PPRank, Args: spec.Args,
 		VRAMUsed: spec.VRAMQuota, StartedAt: time.Now(),
 	}
 	a.instances[id] = inst
 	a.mu.Unlock()
 
 	a.log.Info("部署实例", "id", id, "model", modelName, "engine", spec.Engine,
-		"tp", spec.TensorParallel, "pp", spec.PipelineParallel, "quant", spec.Quant, "path", spec.ModelPath)
-	eng := engine.Create(spec.Engine, engine.Options{HTTPAddr: defaultEngineAddr(spec.Engine)})
+		"tp", spec.TensorParallel, "pp", spec.PipelineParallel, "pp_rank", spec.PPRank,
+		"quant", spec.Quant, "port", spec.Port, "path", spec.ModelPath)
+	eng := engine.Create(spec.Engine, engine.Options{
+		HTTPAddr: defaultEngineAddr(spec.Engine),
+		Command:  a.cfg.Agent.VLLMCommand,
+		Args:     spec.Args,
+	})
 	if err := eng.Load(ctx, engine.LoadConfig{
-		ModelPath:      spec.ModelPath,
-		TensorParallel: spec.TensorParallel,
-		Quant:          spec.Quant,
-		VRAMQuotaBytes: spec.VRAMQuota,
+		ModelPath:          spec.ModelPath,
+		TensorParallel:     spec.TensorParallel,
+		Quant:              spec.Quant,
+		VRAMQuotaBytes:     spec.VRAMQuota,
+		Port:               spec.Port,
+		PPRank:             spec.PPRank,
+		PPTotal:            spec.PipelineParallel,
+		DistributedBackend: spec.DistributedBackend,
 		Extra: map[string]string{
 			"pipeline_parallel": fmt.Sprintf("%d", spec.PipelineParallel),
 		},
@@ -273,6 +294,9 @@ func specOf(inst *Instance, modelsDir string) DeploySpec {
 		TensorParallel:   inst.TensorParallel,
 		PipelineParallel: inst.PipelineParallel,
 		Quant:            inst.Quant,
+		Port:             inst.Port,
+		PPRank:           inst.PPRank,
+		Args:             inst.Args,
 	}
 }
 

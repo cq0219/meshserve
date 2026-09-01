@@ -59,6 +59,8 @@ type DeployRequest struct {
 	PipelineParallel int
 	// Quant 量化档位
 	Quant string
+	// Args 引擎启动参数（vllm serve 追加参数）
+	Args []string
 }
 
 // Scheduler 调度器。

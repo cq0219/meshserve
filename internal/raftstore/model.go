@@ -27,6 +27,8 @@ type Model struct {
 	TensorParallel int `json:"tensor_parallel,omitempty"`
 	// PipelineParallel 流水线并行大小（PP>1 需跨 PP 个节点，每节点一个 stage）
 	PipelineParallel int `json:"pipeline_parallel,omitempty"`
+	// Port rank0 vLLM 服务端口（0=默认 8000，跨节点 PP 时对外暴露）
+	Port int `json:"port,omitempty"`
 	// Replicas 目标副本数
 	Replicas int `json:"replicas"`
 	// Description 模型描述

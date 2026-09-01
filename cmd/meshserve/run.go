@@ -14,8 +14,8 @@ import (
 	"github.com/yourorg/meshserve/internal/cluster"
 	"github.com/yourorg/meshserve/internal/config"
 	"github.com/yourorg/meshserve/internal/console"
+	"github.com/yourorg/meshserve/internal/engine"
 	"github.com/yourorg/meshserve/internal/gateway"
-	"github.com/yourorg/meshserve/internal/health"
 	"github.com/yourorg/meshserve/internal/mdns"
 	"github.com/yourorg/meshserve/internal/modelrepo"
 	"github.com/yourorg/meshserve/internal/observ"
@@ -137,6 +137,7 @@ func newRunCmd() *cobra.Command {
 				Tags: map[string]string{
 					"console_port": portOf(cfg.Console.HTTPAddr),
 					"gateway_port": portOf(cfg.Gateway.HTTPAddr),
+					"agent_port":   portOf(cfg.Agent.RPCAddr),
 					"gpu_model":    gt["gpu_model"],
 					"gpu_count":    gt["gpu_count"],
 					"gpu_vram":     gt["gpu_vram"],
@@ -169,7 +170,7 @@ func newRunCmd() *cobra.Command {
 			// 4. 调度器（订阅成员事件，节点离线触发重建）
 			sched := scheduler.New(store, mgr, log)
 			sched.SetDeployHandler(func(ctx context.Context, req scheduler.DeployRequest) error {
-				// 本节点部署（V1 单机模式；集群版由各节点 agent RPC 分发）
+				// 本节点部署（单机/副本场景；跨节点 PP 由 PPCoordinator 分发到各节点 agent）
 				_, err := ag.DeployInstance(ctx, req.InstanceID, req.ModelName, agent.DeploySpec{
 					ModelPath:        req.ModelPath,
 					Engine:           req.Engine,
@@ -177,40 +178,33 @@ func newRunCmd() *cobra.Command {
 					TensorParallel:   req.TensorParallel,
 					PipelineParallel: req.PipelineParallel,
 					Quant:            req.Quant,
+					Args:             req.Args,
 				})
 				return err
 			})
 			go watchClusterEvents(ctx, mgr, sched)
 
-			// 5. 网关（单机路由模式）
+			// 4.1 PP 编排器：跨节点流水线并行部署（rank0 暴露 API、worker 仅参与计算）
+			ppc := scheduler.NewPPCoordinator(log)
+
+			// 5. 网关（单机路由模式 + PP rank0 远端路由）
 			router := gateway.NewLocalRouter(repo)
 			router.RegisterAgent(ag) // Web 注册/启用的实例动态回退路由（M5）
 			gw := gateway.New(router, gateway.NewTokenBucket(cfg.Gateway.RateLimit), log)
-			registerDeployedModels(ctx, ag, repo, router)
+			registerRemote := func(modelName, addr string) {
+				router.RegisterEngine(modelName, engine.NewRemote(addr, modelName))
+				log.Info("远端路由已注册", "model", modelName, "addr", addr)
+			}
+			registerDeployedModels(ctx, ag, repo, router, ppc, mgr, registerRemote, cfg.Agent.DistributedBackend)
 
-			// 6. 健康探针
-			hs := health.New()
-			hs.SetStartup(true) // 进程启动即视为完成 startup（大模型加载由实例就绪管理）
-			go func() {
-				// 周期探活：任一实例就绪则标记 Ready
-				t := time.NewTicker(10 * time.Second)
-				defer t.Stop()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-t.C:
-						hs.SetReady(len(ag.ListInstances()) > 0)
-					}
-				}
-			}()
+			// 6. agent 管理 API 由 9100 提供（见 7.2），健康探针并入 agent.Handler（/healthz）
 
-			// 7. HTTP 服务：网关 + 控制台（含指标端点）+ 探针
+			// 7. HTTP 服务：网关 + 控制台（含指标端点）+ agent 管理 API
 			mux := http.NewServeMux()
 			mux.Handle("/", gw.Handler())
 
 			// 7.1 Web 控制台（M2 交付：REST API + 内嵌前端）
-			consoleHandler, err := console.Handler(store, mgr, repo, ag)
+			consoleHandler, err := console.Handler(store, mgr, repo, ag, ppc, registerRemote, cfg.Agent.DistributedBackend)
 			if err != nil {
 				return fmt.Errorf("初始化控制台失败: %w", err)
 			}
@@ -224,7 +218,8 @@ func newRunCmd() *cobra.Command {
 			}()
 
 			sh := &http.Server{Addr: cfg.Gateway.HTTPAddr, Handler: mux}
-			ph := &http.Server{Addr: cfg.Agent.RPCAddr, Handler: hs.Handler()}
+			// 7.2 agent 管理 API（部署/停止/查询，集群控制面通过此端口分发任务）
+			ph := &http.Server{Addr: cfg.Agent.RPCAddr, Handler: agent.Handler(ag, log)}
 			go func() {
 				log.Info("推理网关启动", "addr", cfg.Gateway.HTTPAddr)
 				if err := sh.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -232,9 +227,9 @@ func newRunCmd() *cobra.Command {
 				}
 			}()
 			go func() {
-				log.Info("健康探针启动", "addr", cfg.Agent.RPCAddr)
+				log.Info("Agent API 启动", "addr", cfg.Agent.RPCAddr)
 				if err := ph.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-					log.Error("探针服务退出", "err", err)
+					log.Error("Agent API 退出", "err", err)
 				}
 			}()
 
@@ -254,7 +249,9 @@ func newRunCmd() *cobra.Command {
 }
 
 // registerDeployedModels 启动时将已注册模型重新部署为实例（服务重启恢复）。
-func registerDeployedModels(ctx context.Context, ag *agent.Agent, repo *modelrepo.Repo, router *gateway.LocalRouter) {
+// PP>1 的模型经 PPCoordinator 跨节点编排恢复；普通模型本机恢复。
+func registerDeployedModels(ctx context.Context, ag *agent.Agent, repo *modelrepo.Repo, router *gateway.LocalRouter,
+	ppc *scheduler.PPCoordinator, mgr *cluster.Manager, registerRemote func(modelName, addr string), backend string) {
 	models, err := repo.List(ctx)
 	if err != nil {
 		log.Warn("读取已注册模型失败", "err", err)
@@ -262,6 +259,18 @@ func registerDeployedModels(ctx context.Context, ag *agent.Agent, repo *modelrep
 	}
 	for _, m := range models {
 		if m.Source != "local" {
+			continue
+		}
+		if m.PipelineParallel > 1 {
+			// 跨节点 PP：恢复需各节点同时拉起，编排到当前在线节点
+			nodes := aliveMembers(mgr, m.PipelineParallel)
+			res, err := ppc.Deploy(ctx, m, nodes, m.Path, nil, backend)
+			if err != nil {
+				log.Warn("PP 模型恢复失败", "model", m.Name, "err", err)
+				continue
+			}
+			registerRemote(m.Name, res.Rank0Addr)
+			log.Info("PP 模型已恢复", "model", m.Name, "pp", m.PipelineParallel, "rank0", res.Rank0Addr)
 			continue
 		}
 		inst, err := ag.DeployInstance(ctx, "inst-"+m.Name+"-restore", m.Name, agent.DeploySpec{
@@ -281,6 +290,20 @@ func registerDeployedModels(ctx context.Context, ag *agent.Agent, repo *modelrep
 			log.Info("模型已恢复", "model", m.Name, "instance", inst.ID)
 		}
 	}
+}
+
+// aliveMembers 返回在线成员（按状态过滤），最多 n 个；不足 n 时返回全部在线。
+func aliveMembers(mgr *cluster.Manager, n int) []cluster.Member {
+	var out []cluster.Member
+	for _, m := range mgr.Members() {
+		if m.State == cluster.StateAlive {
+			out = append(out, m)
+			if n > 0 && len(out) >= n {
+				break
+			}
+		}
+	}
+	return out
 }
 
 // watchClusterEvents 订阅成员事件：节点故障 → 调度器触发重建。

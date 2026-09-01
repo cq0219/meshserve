@@ -68,10 +68,14 @@ type GatewayConfig struct {
 
 // AgentConfig 节点代理配置。
 type AgentConfig struct {
-	// RPCAddr 控制面 RPC 监听地址
+	// RPCAddr 控制面 RPC 监听地址（agent 管理 API + 健康探针）
 	RPCAddr string `yaml:"rpc_addr" json:"rpc_addr"`
 	// Engine 默认推理引擎：vllm|sglang|llamacpp|fake
 	Engine string `yaml:"engine" json:"engine"`
+	// VLLMCommand vLLM 可执行文件（默认 "vllm"，可指定绝对路径或 venv bin）
+	VLLMCommand string `yaml:"vllm_command" json:"vllm_command"`
+	// DistributedBackend 跨节点并行后端：ray（默认，需预先启动 Ray 集群）| mp（vLLM V2 原生互连）
+	DistributedBackend string `yaml:"distributed_backend" json:"distributed_backend"`
 }
 
 // Default 返回内置默认配置。
@@ -94,8 +98,10 @@ func Default() *Config {
 			HTTPAddr: "0.0.0.0:8443",
 		},
 		Agent: AgentConfig{
-			RPCAddr: "0.0.0.0:9100",
-			Engine:  "vllm",
+			RPCAddr:            "0.0.0.0:9100",
+			Engine:             "vllm",
+			VLLMCommand:        "vllm",
+			DistributedBackend: "ray",
 		},
 	}
 }

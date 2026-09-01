@@ -15,6 +15,7 @@ import (
 	"github.com/yourorg/meshserve/internal/config"
 	"github.com/yourorg/meshserve/internal/modelrepo"
 	"github.com/yourorg/meshserve/internal/raftstore"
+	"github.com/yourorg/meshserve/internal/scheduler"
 )
 
 // 构造控制台处理器（fake 组件）。
@@ -57,7 +58,7 @@ func testHandler(t *testing.T) http.Handler {
 
 	ag := agent.New(cfg, log)
 
-	h, err := Handler(store, members, repo, ag)
+	h, err := Handler(store, members, repo, ag, scheduler.NewPPCoordinator(log), func(string, string) {}, "fake")
 	if err != nil {
 		t.Fatalf("Handler 失败: %v", err)
 	}
@@ -247,7 +248,7 @@ func TestInstancesAPI_MultiNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("repo 失败: %v", err)
 	}
-	h, err := Handler(store, self, repo, ag)
+	h, err := Handler(store, self, repo, ag, scheduler.NewPPCoordinator(log), func(string, string) {}, "fake")
 	if err != nil {
 		t.Fatalf("Handler 失败: %v", err)
 	}

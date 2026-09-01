@@ -3,11 +3,14 @@ package console
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/yourorg/meshserve/internal/agent"
+	"github.com/yourorg/meshserve/internal/cluster"
 	"github.com/yourorg/meshserve/internal/modelrepo"
 	"github.com/yourorg/meshserve/internal/raftstore"
+	"github.com/yourorg/meshserve/internal/scheduler"
 )
 
 // modelReq Web 模型注册/编辑请求体。
@@ -23,14 +26,16 @@ type modelReq struct {
 	VRAM        uint64  `json:"vram"`
 	TP          int     `json:"tp"`
 	PP          int     `json:"pp"`
+	Port        int     `json:"port"`
 	Replicas    int     `json:"replicas"`
 }
 
 // validEngines 合法引擎集合。
 var validEngines = map[string]bool{"fake": true, "vllm": true, "sglang": true, "llamacpp": true}
 
-// registerModelHandler 注册模型：校验 → 入库 → 自动部署（fake 立即 / vllm 探测 / endpoint 直连）。
-func registerModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFunc {
+// registerModelHandler 注册模型：校验 → 入库 → 自动部署（PP>1 跨节点编排，其余本机）。
+func registerModelHandler(repo *modelrepo.Repo, ag *agent.Agent, members *cluster.Manager,
+	ppc *scheduler.PPCoordinator, registerRemote func(modelName, addr string), backend string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req modelReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -47,6 +52,10 @@ func registerModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFun
 		}
 		if req.Path == "" && req.Endpoint == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path 与 endpoint 至少填一个"})
+			return
+		}
+		if req.PP > 1 && len(aliveMembers(members, 0)) < req.PP {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "在线节点不足 PP 要求（需要 " + strconv.Itoa(req.PP) + " 个节点）"})
 			return
 		}
 		if _, err := repo.Get(r.Context(), req.Name); err == nil {
@@ -73,6 +82,7 @@ func registerModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFun
 			VRAMBytes:        vram,
 			TensorParallel:   req.TP,
 			PipelineParallel: req.PP,
+			Port:             req.Port,
 			Replicas:         req.Replicas,
 			Status:           raftstore.StatusDeploying,
 		}
@@ -88,7 +98,7 @@ func registerModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFun
 			writeJSON(w, http.StatusCreated, created)
 			return
 		}
-		if _, err := ag.DeployByModel(r.Context(), created, created.Path); err != nil {
+		if err := deployModel(r.Context(), created, members, ag, ppc, registerRemote, backend); err != nil {
 			created.Status = raftstore.StatusError
 			created.LastError = err.Error()
 			_ = repo.Update(r.Context(), created)
@@ -102,7 +112,8 @@ func registerModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFun
 }
 
 // updateModelHandler 编辑模型元数据；engine/path/quant 等变更时重新部署。
-func updateModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFunc {
+func updateModelHandler(repo *modelrepo.Repo, ag *agent.Agent, members *cluster.Manager,
+	ppc *scheduler.PPCoordinator, registerRemote func(modelName, addr string), backend string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		cur, err := repo.Get(r.Context(), name)
@@ -149,9 +160,17 @@ func updateModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFunc 
 		}
 		if req.TP > 0 {
 			cur.TensorParallel = req.TP
+			needRedeploy = true
 		}
 		if req.PP > 0 {
-			cur.PipelineParallel = req.PP
+			if req.PP != cur.PipelineParallel {
+				cur.PipelineParallel = req.PP
+				needRedeploy = true
+			}
+		}
+		if req.Port > 0 {
+			cur.Port = req.Port
+			needRedeploy = true
 		}
 		if req.Replicas > 0 {
 			cur.Replicas = req.Replicas
@@ -161,12 +180,12 @@ func updateModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFunc 
 			return
 		}
 		if needRedeploy && cur.Status != raftstore.StatusDisabled {
-			_ = ag.StopInstancesByModel(r.Context(), cur.Name)
+			_ = stopModelEverywhere(r.Context(), cur.Name, members, ag)
 			_ = repo.SetStatus(r.Context(), cur.Name, raftstore.StatusDeploying)
 			if cur.Endpoint != "" {
 				_ = repo.SetStatus(r.Context(), cur.Name, raftstore.StatusOnline)
 				cur.Status = raftstore.StatusOnline
-			} else if _, err := ag.DeployByModel(r.Context(), cur, cur.Path); err != nil {
+			} else if err := deployModel(r.Context(), cur, members, ag, ppc, registerRemote, backend); err != nil {
 				_ = repo.SetStatus(r.Context(), cur.Name, raftstore.StatusError)
 				cur.Status = raftstore.StatusError
 			} else {
@@ -179,7 +198,8 @@ func updateModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFunc 
 }
 
 // toggleModelHandler 停用/启用模型。
-func toggleModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFunc {
+func toggleModelHandler(repo *modelrepo.Repo, ag *agent.Agent, members *cluster.Manager,
+	ppc *scheduler.PPCoordinator, registerRemote func(modelName, addr string), backend string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		m, err := repo.Get(r.Context(), name)
@@ -193,7 +213,7 @@ func toggleModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFunc 
 			if m.Endpoint != "" {
 				_ = repo.SetStatus(r.Context(), name, raftstore.StatusOnline)
 				m.Status = raftstore.StatusOnline
-			} else if _, err := ag.DeployByModel(r.Context(), m, m.Path); err != nil {
+			} else if err := deployModel(r.Context(), m, members, ag, ppc, registerRemote, backend); err != nil {
 				_ = repo.SetStatus(r.Context(), name, raftstore.StatusError)
 				m.Status = raftstore.StatusError
 			} else {
@@ -203,23 +223,23 @@ func toggleModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFunc 
 			writeJSON(w, http.StatusOK, m)
 			return
 		}
-		// 停用：停止全部实例
-		_ = ag.StopInstancesByModel(r.Context(), name)
+		// 停用：停止全部实例（本机 + 远端）
+		_ = stopModelEverywhere(r.Context(), name, members, ag)
 		_ = repo.SetStatus(r.Context(), name, raftstore.StatusDisabled)
 		m.Status = raftstore.StatusDisabled
 		writeJSON(w, http.StatusOK, m)
 	}
 }
 
-// deleteModelHandler 删除模型（先停止实例）。
-func deleteModelHandler(repo *modelrepo.Repo, ag *agent.Agent) http.HandlerFunc {
+// deleteModelHandler 删除模型（先停止本机与远端实例）。
+func deleteModelHandler(repo *modelrepo.Repo, ag *agent.Agent, members *cluster.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if _, err := repo.Get(r.Context(), name); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "模型不存在: " + name})
 			return
 		}
-		_ = ag.StopInstancesByModel(r.Context(), name)
+		_ = stopModelEverywhere(r.Context(), name, members, ag)
 		if err := repo.Delete(r.Context(), name, false); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

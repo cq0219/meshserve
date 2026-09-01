@@ -39,6 +39,14 @@ type LoadConfig struct {
 	Quant string
 	// VRAMQuotaBytes 显存配额（字节）
 	VRAMQuotaBytes uint64
+	// Port 引擎 HTTP 服务端口（0=默认 8000，多实例需显式分配）
+	Port int
+	// PPRank 流水线并行 rank（0=rank0 暴露 API；>0=worker 仅参与计算）
+	PPRank int
+	// PPTotal 流水线并行总大小（<=1 表示无 PP）
+	PPTotal int
+	// DistributedBackend 跨节点并行后端：ray|mp
+	DistributedBackend string
 	// Extra 引擎附加参数（透传）
 	Extra map[string]string
 }
