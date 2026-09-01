@@ -179,6 +179,14 @@ internal/observ          结构化日志
 | **测试数据** | config/console/raftstore 回归全绿 |
 | **本地 E2E 验证** | A init+run；B 直接 run（无 join_addr）→ 日志"自动发现引导节点"→ A 控制台 node_count=2/online=2 |
 
+### M9 — 跨节点 PP 编排（2026-09-01，commit b8bb319）
+
+| 类别 | 内容 |
+|------|------|
+| **新增功能** | **跨节点 PP 编排**：vLLM 引擎进程拉起模式注入 `--pipeline-parallel-size` / `--distributed-executor-backend`（worker 无 HTTP API 启动即就绪）；agent 管理 HTTP API（9100：`/api/deploy`、`/api/stop`、`/api/instances`）供控制面分发远端部署；PPCoordinator 按 rank 并发部署到多节点、worker 端口顺延（rank0+i）、任一失败全量回滚；RemoteEngine 网关远端转发（rank0 暴露 OpenAI API、worker 仅参与计算）；console 注册 PP>1 走编排器、停用/删除跨节点清理；Web 表单新增「vLLM 服务端口」 |
+| **测试数据** | 新增 engine fakevllm 进程模拟（Spawn 参数注入 / PpWorker 即就绪 / Probe 探测）、agent API 往返、scheduler 双节点并发部署/失败回滚测试；`go build` + `go vet` + `go test ./...` 全绿 |
+| **本地 E2E 验证** | 双节点（A init+run、B join+run）注册 PP=2 模型 → rank0=A:8000、rank1=B:8001（端口顺延正确）→ 网关 `/v1/models` 可见 → Chat 经 RemoteEngine 转发 rank0 成功 → 停用后双节点实例清空 |
+
 ## 测试
 
 ```bash
